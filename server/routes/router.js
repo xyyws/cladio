@@ -60,4 +60,7 @@ router.get('/artist/:artistId', artistController.getArtistWiki);
 // 14. POST /api/like — 红心/取消红心歌曲
 router.post('/like', likeController.likeSong);
 
+// 15. GET /api/tts/:id — 轮询 TTS 生成状态
+router.get('/tts/:id', chatController.getTtsStatus);
+
 module.exports = router;

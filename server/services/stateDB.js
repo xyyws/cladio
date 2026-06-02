@@ -80,6 +80,16 @@ function initTables() {
 
     CREATE INDEX IF NOT EXISTS idx_ai_logs_created_at
       ON ai_logs(created_at DESC);
+
+    -- 通用缓存表（歌曲详情、歌词、评论等）
+    CREATE TABLE IF NOT EXISTS cache (
+      key       TEXT PRIMARY KEY,
+      value     TEXT NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cache_expires_at
+      ON cache(expires_at);
   `);
 }
 
@@ -193,6 +203,35 @@ function getUniqueSongCount() {
   return getDb().prepare('SELECT COUNT(DISTINCT song_id) AS count FROM play_history').get().count;
 }
 
+// ══════════════════════════════════════════════
+// 通用缓存
+// ══════════════════════════════════════════════
+
+function cacheGet(key) {
+  const stmt = getDb().prepare('SELECT value FROM cache WHERE key = ? AND expires_at > datetime("now")');
+  const row = stmt.get(key);
+  return row ? JSON.parse(row.value) : null;
+}
+
+function cacheSet(key, value, ttlSeconds = 3600) {
+  const stmt = getDb().prepare(`
+    INSERT INTO cache (key, value, expires_at)
+    VALUES (?, ?, datetime("now", "+${ttlSeconds} seconds"))
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      expires_at = excluded.expires_at
+  `);
+  stmt.run(key, JSON.stringify(value));
+}
+
+function cacheDelete(key) {
+  getDb().prepare('DELETE FROM cache WHERE key = ?').run(key);
+}
+
+function cacheCleanup() {
+  getDb().prepare('DELETE FROM cache WHERE expires_at < datetime("now")').run();
+}
+
 module.exports = {
   getDb,
   logPlay,
@@ -203,4 +242,8 @@ module.exports = {
   getRecentAILogs,
   getPlayCount,
   getUniqueSongCount,
+  cacheGet,
+  cacheSet,
+  cacheDelete,
+  cacheCleanup,
 };

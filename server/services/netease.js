@@ -60,14 +60,21 @@ async function api(endpoint, params = {}, retryCount = 0) {
   }
 }
 
+// ── 缓存 ──
+const { cacheGet, cacheSet } = require('./stateDB');
+
 // ── 歌曲详情 ──
 
 async function getSongDetail(songId) {
+  const cacheKey = `song_detail:${songId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const json = await api('/song/detail', { ids: String(songId) });
   const song = json?.songs?.[0];
   if (!song) return null;
 
-  return {
+  const result = {
     id: song.id,
     name: song.name,
     artists: (song.ar || []).map(a => a.name).join(' / '),
@@ -77,6 +84,9 @@ async function getSongDetail(songId) {
     duration: song.dt || 0,
     pop: song.pop || 0,
   };
+
+  cacheSet(cacheKey, result, 3600); // 缓存 1 小时
+  return result;
 }
 
 // ── 播放地址（实时获取，不缓存） ──
@@ -130,20 +140,31 @@ async function search(keywords, { limit = 20, offset = 0, type = 1 } = {}) {
 // ── 热门评论 ──
 
 async function getHotComments(songId, limit = 5) {
+  const cacheKey = `comments:${songId}:${limit}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const json = await api('/comment/hot', { id: String(songId), type: 0, limit });
   const comments = json?.hotComments || [];
 
-  return comments.map(c => ({
+  const result = comments.map(c => ({
     user: c.user?.nickname || '匿名',
     content: c.content || '',
     likedCount: c.likedCount || 0,
     time: c.time || 0,
   }));
+
+  cacheSet(cacheKey, result, 1800); // 缓存 30 分钟
+  return result;
 }
 
 // ── 歌词 ──
 
 async function getLyrics(songId) {
+  const cacheKey = `lyrics:${songId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const json = await api('/lyric', { id: String(songId) });
   const lrc = json?.lrc?.lyric || '';
   const tlyric = json?.tlyric?.lyric || '';
@@ -172,11 +193,14 @@ async function getLyrics(songId) {
       .filter(line => line.length > 0)
       .join('\n');
 
-  return {
+  const result = {
     lyric: cleanLrc(lrc),
     tlyric: tlyric ? cleanLrc(tlyric) : null,
     timestamps: parseTimestamps(lrc),
   };
+
+  cacheSet(cacheKey, result, 3600); // 缓存 1 小时
+  return result;
 }
 
 // ── 红心/取消红心 ──

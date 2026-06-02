@@ -8,11 +8,24 @@
  *   4. 大模型生成最终回复
  *   5. 返回给前端：回复文本 + 工具调用日志 + 推荐歌曲
  *
+ * TTS 异步化：
+ *   - 聊天立即返回文字 + 歌曲
+ *   - TTS 后台生成，前端通过 /api/tts/:id 轮询获取
+ *
  * 最多循环 5 轮（防止无限调用）
  */
 const axios = require('axios');
 const config = require('../config');
 const { getEnvironmentSnapshot } = require('../services/context');
+
+// TTS 异步缓存（5 分钟过期）
+const ttsCache = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of ttsCache) {
+    if (val.expires < now) ttsCache.delete(key);
+  }
+}, 60000);
 const { getPlayableTracks } = require('../services/audioService');
 const { generateSpeech } = require('../services/tts');
 const { TOOL_DEFINITIONS, executeTool } = require('../services/tools');
@@ -265,24 +278,31 @@ async function postChat(req, res, next) {
     // 运行 Agent
     const result = await runAgent(message, history);
 
-    // 并行获取歌曲播放信息 + TTS 语音
-    const [tracksResult, ttsResult] = await Promise.allSettled([
-      result.songs.length > 0
-        ? getPlayableTracks(result.songs.slice(0, 5))
-        : Promise.resolve([]),
-      generateSpeech(result.reply),
-    ]);
+    // 先获取歌曲（必须等待）
+    let tracks = [];
+    if (result.songs.length > 0) {
+      tracks = await getPlayableTracks(result.songs.slice(0, 5)).catch(() => []);
+    }
 
-    const tracks = tracksResult.status === 'fulfilled' ? tracksResult.value : [];
-    const djAudio = ttsResult.status === 'fulfilled' ? ttsResult.value.url : null;
-
+    // 立即返回文字 + 歌曲，TTS 后台生成
+    const ttsId = `tts_${Date.now()}`;
     res.json({
       reply: result.reply,
       songs: result.songs,
       tracks,
-      djAudio,
+      djAudio: null,  // 后台生成后通过轮询获取
+      ttsId,
       reason: result.reason || '',
       activityLog: result.activityLog,
+    });
+
+    // TTS 后台生成（不阻塞响应）
+    generateSpeech(result.reply).then(ttsResult => {
+      ttsCache.set(ttsId, { url: ttsResult.url, expires: Date.now() + 300000 });
+      console.log(`[TTS] 后台生成完成: ${ttsId}`);
+    }).catch(err => {
+      console.warn('[TTS] 后台生成失败:', err.message);
+      ttsCache.set(ttsId, { url: null, expires: Date.now() + 300000 });
     });
   } catch (err) {
     console.error('[Agent] 执行失败:', err.message);
@@ -290,4 +310,27 @@ async function postChat(req, res, next) {
   }
 }
 
-module.exports = { postChat };
+/**
+ * GET /api/tts/:id — 轮询 TTS 生成状态
+ */
+async function getTtsStatus(req, res) {
+  const { id } = req.params;
+  const entry = ttsCache.get(id);
+
+  if (!entry) {
+    return res.json({ status: 'pending' });
+  }
+
+  if (entry.url === null && entry.expires < Date.now()) {
+    ttsCache.delete(id);
+    return res.json({ status: 'failed' });
+  }
+
+  if (entry.url) {
+    return res.json({ status: 'ready', url: entry.url });
+  }
+
+  return res.json({ status: 'pending' });
+}
+
+module.exports = { postChat, getTtsStatus };

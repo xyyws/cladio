@@ -290,8 +290,9 @@ async function sendChat() {
     chatMessages.push({ role: 'assistant', content: json.reply || '...', tracks: json.tracks && json.tracks.length > 0 ? json.tracks : null })
     scrollToBottom()
 
-    // 播放 TTS 语音（如果后端返回了 djAudio）
+    // 播放 TTS 语音（异步轮询）
     if (json.djAudio) {
+      // 直接有 djAudio（兼容旧逻辑）
       const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
       const djUrl = json.djAudio.startsWith('http') ? json.djAudio : `${API_BASE}${json.djAudio}`
       try {
@@ -300,6 +301,35 @@ async function sendChat() {
         await engine._playDj(djUrl)
       } catch (err) {
         console.warn('[Chat] TTS 播放失败:', err.message)
+      }
+    } else if (json.ttsId) {
+      // 异步 TTS：轮询等待生成完成
+      const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
+      const maxWait = 30000 // 最多等 30 秒
+      const start = Date.now()
+      let djUrl = null
+
+      while (Date.now() - start < maxWait) {
+        await new Promise(r => setTimeout(r, 1000))
+        try {
+          const ttsRes = await fetch(`${API_BASE}/api/tts/${json.ttsId}`)
+          const ttsData = await ttsRes.json()
+          if (ttsData.status === 'ready' && ttsData.url) {
+            djUrl = ttsData.url.startsWith('http') ? ttsData.url : `${API_BASE}${ttsData.url}`
+            break
+          }
+          if (ttsData.status === 'failed') break
+        } catch (_) {}
+      }
+
+      if (djUrl) {
+        try {
+          state.status = 'speaking'
+          engine.ensureContext()
+          await engine._playDj(djUrl)
+        } catch (err) {
+          console.warn('[Chat] TTS 播放失败:', err.message)
+        }
       }
     }
 

@@ -160,7 +160,8 @@
       "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('results:', d.results?.length\\);}\\)\")",
       "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('say:', d.data?.say?.slice\\(0,50\\)\\);console.log\\('song:', d.data?.playlist?.[0]?.title\\);}\\)\")",
       "Bash(curl -s \"https://cladio-production.up.railway.app/api/search?keywords=晴天\")",
-      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('results:', d.results?.length\\);d.results?.slice\\(0,3\\).forEach\\(s=>console.log\\('  -', s.name, '-', s.artists\\)\\);}\\);\")"
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('results:', d.results?.length\\);d.results?.slice\\(0,3\\).forEach\\(s=>console.log\\('  -', s.name, '-', s.artists\\)\\);}\\);\")",
+      "Bash(curl -s -X POST \"https://resplendent-tapioca-10f851.netlify.app/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"test\",\"history\":[]}')"
     ]
   }
 }
