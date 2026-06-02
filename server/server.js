@@ -14,9 +14,12 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // ── 内嵌网易云 API ──
-const NCM_PATH = path.join(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
+const NCM_DIR = path.resolve(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
+const NCM_SERVER = path.join(NCM_DIR, 'server.js');
+console.log('[NetEase API] 尝试加载:', NCM_SERVER);
+console.log('[NetEase API] 文件存在:', require('fs').existsSync(NCM_SERVER));
 try {
-  const ncmServer = require(path.join(NCM_PATH, 'server.js'));
+  const ncmServer = require(NCM_SERVER);
   ncmServer.consturctServer().then(ncmApp => {
     if (ncmApp) {
       app.use(ncmApp);

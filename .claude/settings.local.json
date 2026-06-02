@@ -173,7 +173,11 @@
       "Bash(curl -s \"http://localhost:8080/song/detail?ids=347230\")",
       "Bash(curl -s \"http://localhost:8080/search?keywords=%E9%98%B3%E5%85%89&limit=3&type=1\")",
       "Bash(curl -s \"http://localhost:8080/search?keywords=%E9%98%B3%E5%85%89&limit=1&type=1\")",
-      "Bash(curl -s \"http://localhost:8080/search?keywords=%E9%98%B3%E5%85%89&limit=3\")"
+      "Bash(curl -s \"http://localhost:8080/search?keywords=%E9%98%B3%E5%85%89&limit=3\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/search?keywords=周杰伦&limit=2\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);d.results?.forEach\\(s=>console.log\\('✓', s.name, '-', s.artists\\)\\);}\\)\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('✓', d.title, '-', d.artist, 'playable:', d.playable\\);}\\)\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('✓ comments:', d.comments?.length\\);}\\)\")"
     ]
   }
 }
