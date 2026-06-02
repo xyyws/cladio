@@ -14,23 +14,32 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // ── 内嵌网易云 API ──
-// Railway 部署时 __dirname = /app，本地开发时 __dirname = /app/server
+const fs = require('fs');
 let NCM_DIR = path.resolve(__dirname, 'NeteaseCloudMusicApiBackup-main');
-if (!require('fs').existsSync(NCM_DIR)) {
+console.log('[NetEase API] 尝试路径1:', NCM_DIR, '存在:', fs.existsSync(NCM_DIR));
+if (!fs.existsSync(NCM_DIR)) {
   NCM_DIR = path.resolve(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
+  console.log('[NetEase API] 尝试路径2:', NCM_DIR, '存在:', fs.existsSync(NCM_DIR));
 }
-try {
-  const ncmServer = require(path.join(NCM_DIR, 'server.js'));
-  ncmServer.consturctServer().then(ncmApp => {
-    if (ncmApp) {
-      app.use(ncmApp);
-      console.log('[NetEase API] 已嵌入主服务');
-    }
-  }).catch(err => {
-    console.warn('[NetEase API] 嵌入失败:', err.message);
-  });
-} catch (err) {
-  console.warn('[NetEase API] 加载失败:', err.message);
+const NCM_SERVER = path.join(NCM_DIR, 'server.js');
+console.log('[NetEase API] 最终路径:', NCM_SERVER, '存在:', fs.existsSync(NCM_SERVER));
+if (fs.existsSync(NCM_SERVER)) {
+  try {
+    const ncmServer = require(NCM_SERVER);
+    console.log('[NetEase API] 模块加载成功');
+    ncmServer.consturctServer().then(ncmApp => {
+      if (ncmApp) {
+        app.use(ncmApp);
+        console.log('[NetEase API] 已嵌入主服务');
+      }
+    }).catch(err => {
+      console.warn('[NetEase API] 嵌入失败:', err.message);
+    });
+  } catch (err) {
+    console.warn('[NetEase API] 加载失败:', err.message);
+  }
+} else {
+  console.warn('[NetEase API] 文件不存在，跳过嵌入');
 }
 
 // ── Static: TTS 缓存音频 ──
