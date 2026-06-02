@@ -62,7 +62,7 @@ const lyricsContainer = ref(null)
 watch(currentTrack, async (track) => {
   if (!track?.songId) { lyricsLines.value = []; return }
   try {
-    const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
     const res = await fetch(`${API_BASE}/api/lyrics/${track.songId}`)
     const data = await res.json()
     lyricsLines.value = data.lines || []

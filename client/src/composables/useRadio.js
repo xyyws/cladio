@@ -1,7 +1,7 @@
 import { ref, reactive } from 'vue';
 import { AudioEngine } from './AudioEngine.js';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '');
 
 // 强制 HTTPS（解决 Mixed Content）
 function ensureHttps(url) {

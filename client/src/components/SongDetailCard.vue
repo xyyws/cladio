@@ -19,7 +19,7 @@ const showCommentsCard = ref(false)
 async function fetchDetail() {
   if (!props.song?.songId) return
   loading.value = true
-  const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+  const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
   const id = props.song.songId
 
   try {

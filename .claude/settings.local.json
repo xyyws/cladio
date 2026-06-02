@@ -129,7 +129,10 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(rm -rf \"C:/Users/041120XL/Desktop/Claudio/NeteaseCloudMusicApiBackup-main/.git\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "WebFetch(domain:resplendent-tapioca-10f851.netlify.app)",
+      "Bash(curl -s \"https://resplendent-tapioca-10f851.netlify.app/\")",
+      "Bash(curl -s \"https://resplendent-tapioca-10f851.netlify.app/api/health\")"
     ]
   }
 }

@@ -47,7 +47,7 @@ async function handleNeteaseLogin() {
   loginError.value = ''
 
   try {
-    const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -238,7 +238,7 @@ async function likeCurrentTrack() {
   const track = currentTrack.value
   if (!track?.songId) return
 
-  const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+  const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
   const songId = track.songId
   const like = !likedSongs.value[songId]
 
@@ -291,7 +291,7 @@ async function sendChat() {
 
     // 播放 TTS 语音（如果后端返回了 djAudio）
     if (json.djAudio) {
-      const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+      const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
       const djUrl = json.djAudio.startsWith('http') ? json.djAudio : `${API_BASE}${json.djAudio}`
       try {
         state.status = 'speaking'
@@ -322,7 +322,7 @@ async function fetchComments(songId) {
   if (!songId || songId === _lastCommentSongId) return
   _lastCommentSongId = songId
   try {
-    const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
     const res = await fetch(`${API_BASE}/api/comments/${songId}`)
     const data = await res.json()
     if (data.comments?.length) {
