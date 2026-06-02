@@ -140,7 +140,13 @@
       "Bash(curl -s \"https://netease-cloud-music-api-psi-kohl.vercel.app/playlist/track/all?id=2107763308&limit=3\")",
       "Bash(curl -s \"http://localhost:8080/api/arsenal/play?limit=2\")",
       "Bash(curl -s \"https://loyal-hope-production-717d.up.railway.app/playlist/track/all?id=2107763308&limit=2\")",
-      "Bash(curl -s \"https://netease-cloud-music-api-pi-hazel.vercel.app/playlist/track/all?id=2107763308&limit=2\")"
+      "Bash(curl -s \"https://netease-cloud-music-api-pi-hazel.vercel.app/playlist/track/all?id=2107763308&limit=2\")",
+      "Bash(curl -s \"https://netease-cloud-music-api-pi-hazel.vercel.app/song/url?id=347230&cookie=MUSIC_U=005EFBD3655BAB075DDEA8504B8E2E096696E2D512C71D2A999912E605490462046B7A779240FA4F1E5AB9A0A910AC86D15A4D069EA73AAAF1E254A2FB1001E778659B08CD6543F7BDE68D9EBB03312AC1702572B7448E8A230063E6239F4C9766EEDEA2E735ED0EE39F03179FDF51D833FCF1AFD2B0160E388E11DF9BDACEDB76601D087C0A7E2521EEA01DADB04FE352B3036704D2D51CC559B87A6EF5185B802E67607EDED13BB5103826C39B527F1574FBE9492F32115C6E096248ECEC263AB2763E766AA4A7EE861CB994BD7B2554C926D14AD0943F625B502E17ADFE192B853CC46895CE9A240973465EFE9E173A528CAAD042761B287B9D7A7528428207E4CCB7FC81C9FCCF19F2C9949665E66E75660C46C7379B52DBBB36284BBB5484FDF0FFF3B13137F991BBEC190179B643FE4022C33500176401CE9E092EF8710768B8EB8BC674F54E19032F5672B9DD9551319E7CE1BD487164AAA25E4129216FDFF4EF318CDC3DCAD50474102D80B36428C711D1F7C0E94BE56636EE29CC9CED2B790DC87C33A7E866D6CFE73B006188\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/arsenal/play?limit=1\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/arsenal/play?limit=5\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/next\")",
+      "Bash(curl -s -X POST \"https://cladio-production.up.railway.app/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"你好\",\"history\":[]}')",
+      "Bash(curl -s \"https://resplendent-tapioca-10f851.netlify.app/assets/index-DEb2JVxA.js\")"
     ]
   }
 }

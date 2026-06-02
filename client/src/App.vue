@@ -278,7 +278,7 @@ async function sendChat() {
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .slice(-10)
 
-    const res = await fetch('/api/chat', {
+    const res = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg, history }),
