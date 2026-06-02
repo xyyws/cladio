@@ -347,12 +347,15 @@ export function useRadio() {
    * @param {object} chatData - { reply, songs, tracks, reason }
    */
   async function playChatSongs(chatData) {
+    console.log('[Radio] playChatSongs called, tracks:', chatData?.tracks?.length);
     if (!chatData?.tracks?.length) return;
 
     // 过滤可播放的歌曲
     const playlist = chatData.tracks.filter(
       song => song.playable === true && song.audioUrl !== null
     );
+
+    console.log('[Radio] playable tracks:', playlist.length);
 
     if (playlist.length === 0) {
       console.warn('[Radio] 聊天推荐的歌曲全部不可播放');
@@ -369,7 +372,7 @@ export function useRadio() {
     state.segue = 'crossfade:2000';
     state.lastUpdated = Date.now();
 
-    console.log(`[Radio] 聊天推荐: ${playlist.length} 首歌`);
+    console.log(`[Radio] 聊天推荐: ${playlist.length} 首歌，队列已更新`);
 
     // 顺序播放所有推荐歌曲
     stopped = false;
