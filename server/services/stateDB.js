@@ -208,20 +208,16 @@ function getUniqueSongCount() {
 // ══════════════════════════════════════════════
 
 function cacheGet(key) {
-  const stmt = getDb().prepare('SELECT value FROM cache WHERE key = ? AND expires_at > datetime("now")');
+  const stmt = getDb().prepare("SELECT value FROM cache WHERE key = ? AND expires_at > datetime('now')");
   const row = stmt.get(key);
   return row ? JSON.parse(row.value) : null;
 }
 
 function cacheSet(key, value, ttlSeconds = 3600) {
-  const stmt = getDb().prepare(`
-    INSERT INTO cache (key, value, expires_at)
-    VALUES (?, ?, datetime("now", "+${ttlSeconds} seconds"))
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      expires_at = excluded.expires_at
-  `);
-  stmt.run(key, JSON.stringify(value));
+  const stmt = getDb().prepare(
+    `INSERT INTO cache (key, value, expires_at) VALUES (?, ?, datetime('now', '+' || ? || ' seconds')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`
+  );
+  stmt.run(key, JSON.stringify(value), ttlSeconds);
 }
 
 function cacheDelete(key) {
