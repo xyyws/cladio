@@ -1,0 +1,9 @@
+{
+  "name": "cladio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "cd server && npm start",
+    "build": "cd client && npm run build"
+  }
+}
