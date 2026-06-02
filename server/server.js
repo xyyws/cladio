@@ -17,15 +17,15 @@ app.use(morgan('dev'));
 const NCM_PATH = path.join(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
 try {
   const ncmServer = require(path.join(NCM_PATH, 'server'));
-  const constructFn = ncmServer.consturctServer || ncmServer.constructServer;
-  if (constructFn) {
-    constructFn().then(ncmApp => {
+  // serveNcmApi 返回 Promise<app>，用 port:0 阻止它监听端口
+  ncmServer.serveNcmApi({ port: 0, host: '' }).then(ncmApp => {
+    if (ncmApp && ncmApp.use) {
       app.use(ncmApp);
       console.log('[NetEase API] 已嵌入主服务');
-    }).catch(err => {
-      console.warn('[NetEase API] 嵌入失败:', err.message);
-    });
-  }
+    }
+  }).catch(err => {
+    console.warn('[NetEase API] 嵌入失败:', err.message);
+  });
 } catch (err) {
   console.warn('[NetEase API] 加载失败:', err.message);
 }

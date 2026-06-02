@@ -211,6 +211,7 @@ export class AudioEngine {
       // 存储 resolve，让 _stopMusic 可以中断 Promise
       this._musicResolve = resolve;
       this._musicReject = reject;
+      this._musicStopped = false;
 
       const audio = new Audio(url);
       this._musicEl = audio;
@@ -230,9 +231,10 @@ export class AudioEngine {
       audio.addEventListener('ended', () => {
         this._musicResolve = null;
         this._musicReject = null;
+        this._musicStopped = false;
         this.isPlaying = false;
         this._cleanupMusic();
-        resolve();
+        resolve({ finished: true });
       });
 
       audio.addEventListener('error', (e) => {
@@ -321,9 +323,9 @@ export class AudioEngine {
   }
 
   _stopMusic() {
-    // 中断正在进行的 Promise
+    // 中断正在进行的 Promise（标记为被打断）
     if (this._musicResolve) {
-      this._musicResolve();
+      this._musicResolve({ finished: false });
       this._musicResolve = null;
       this._musicReject = null;
     }
