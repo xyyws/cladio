@@ -13,13 +13,17 @@ const RETRY_DELAY_MS = 1000;
 
 // 读取网易云 Cookie（SVIP 登录态）
 const COOKIE_PATH = path.join(__dirname, '..', '..', 'NeteaseCloudMusicApiBackup-main', 'cookie.txt');
-let NETEASE_COOKIE = '';
+let NETEASE_COOKIE = process.env.NETEASE_COOKIE || '';
 
-try {
-  NETEASE_COOKIE = fs.readFileSync(COOKIE_PATH, 'utf-8').trim();
-  console.log('[NetEase] Cookie 已加载');
-} catch (_) {
-  console.warn('[NetEase] 未找到 cookie.txt，将以游客身份访问');
+if (!NETEASE_COOKIE) {
+  try {
+    NETEASE_COOKIE = fs.readFileSync(COOKIE_PATH, 'utf-8').trim();
+    console.log('[NetEase] Cookie 已从文件加载');
+  } catch (_) {
+    console.warn('[NetEase] 未找到 cookie.txt，将以游客身份访问');
+  }
+} else {
+  console.log('[NetEase] Cookie 已从环境变量加载');
 }
 
 function sleep(ms) {
