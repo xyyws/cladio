@@ -146,7 +146,21 @@
       "Bash(curl -s \"https://cladio-production.up.railway.app/api/arsenal/play?limit=5\")",
       "Bash(curl -s \"https://cladio-production.up.railway.app/api/next\")",
       "Bash(curl -s -X POST \"https://cladio-production.up.railway.app/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"你好\",\"history\":[]}')",
-      "Bash(curl -s \"https://resplendent-tapioca-10f851.netlify.app/assets/index-DEb2JVxA.js\")"
+      "Bash(curl -s \"https://resplendent-tapioca-10f851.netlify.app/assets/index-DEb2JVxA.js\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('tracks:', d.data?.trackCount\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/arsenal/play?limit=2\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);d.data?.playlist?.forEach\\(t=>console.log\\('  -', t.title, 'playable:', t.playable\\)\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/comments/347230\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('comments:', d.comments?.length\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/lyrics/347230\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('lines:', d.lines?.length\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/artist/6452\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('wiki:', d.briefDesc?.slice\\(0,50\\)+'...'\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/search?keywords=周杰伦\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('results:', d.results?.length\\);}\\)\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('say:', d.data?.say?.slice\\(0,50\\)\\);console.log\\('song:', d.data?.playlist?.[0]?.title\\);}\\)\")",
+      "Bash(curl -s \"https://cladio-production.up.railway.app/api/search?keywords=晴天\")",
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('results:', d.results?.length\\);d.results?.slice\\(0,3\\).forEach\\(s=>console.log\\('  -', s.name, '-', s.artists\\)\\);}\\);\")"
     ]
   }
 }

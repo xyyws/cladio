@@ -264,6 +264,7 @@ function pushSystemMsg(content) {
 }
 
 async function sendChat() {
+  const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
   const msg = chatInput.value.trim()
   if (!msg || chatLoading.value) return
   chatMessages.push({ role: 'user', content: msg })
