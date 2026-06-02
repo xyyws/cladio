@@ -33,8 +33,9 @@ npm-debug.log*
 # Wolf
 .wolf/
 
-# Netease (submodule-like)
-NeteaseCloudMusicApiBackup-main/
+# Netease
+NeteaseCloudMusicApiBackup-main/node_modules/
+NeteaseCloudMusicApiBackup-main/cookie.txt
 
 # Client
 client/node_modules/

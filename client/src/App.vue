@@ -224,7 +224,10 @@ const statusLabel = computed(() => {
     default: return 'STANDBY'
   }
 })
-const coverUrl = computed(() => state.playlist?.[state.currentIndex]?.coverUrl || state.playlist?.find(t => t.coverUrl)?.coverUrl || null)
+const coverUrl = computed(() => {
+  const url = state.playlist?.[state.currentIndex]?.coverUrl || state.playlist?.find(t => t.coverUrl)?.coverUrl || null
+  return url ? url.replace(/^http:\/\//, 'https://') : null
+})
 const currentTrack = computed(() => state.playlist?.[state.currentIndex] || null)
 
 // ── Like Song ──

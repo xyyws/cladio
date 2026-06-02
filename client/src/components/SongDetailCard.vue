@@ -104,7 +104,7 @@ onMounted(fetchDetail)
       <!-- Cover + Info -->
       <div class="sd-main">
         <div class="sd-cover">
-          <img v-if="detail.coverUrl" :src="detail.coverUrl" class="w-full h-full object-cover rounded-2xl" alt="cover" />
+          <img v-if="detail.coverUrl" :src="detail.coverUrl.replace(/^http:\/\//, 'https://')" class="w-full h-full object-cover rounded-2xl" alt="cover" />
           <div v-else class="w-full h-full flex items-center justify-center text-text-dim text-5xl bg-cyber-surface rounded-2xl">🎵</div>
         </div>
         <h2 class="font-sans text-2xl font-bold text-text-primary text-center mt-4">{{ detail.title }}</h2>

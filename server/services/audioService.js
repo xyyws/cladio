@@ -31,7 +31,7 @@ async function getPlayableTrack(songId) {
       title: detail.name,
       artist: detail.artists,
       artistId: detail.artistId,
-      coverUrl,
+      coverUrl: coverUrl ? coverUrl.replace(/^http:\/\//, 'https://') : coverUrl,
       error: '版权受限或需 VIP',
       playable: false,
     };
@@ -42,8 +42,8 @@ async function getPlayableTrack(songId) {
     title: detail.name,
     artist: detail.artists,
     artistId: detail.artistId,
-    coverUrl,
-    audioUrl: urlInfo.url,
+    coverUrl: coverUrl ? coverUrl.replace(/^http:\/\//, 'https://') : coverUrl,
+    audioUrl: urlInfo.url ? urlInfo.url.replace(/^http:\/\//, 'https://') : urlInfo.url,
     playable: true,
   };
 }

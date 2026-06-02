@@ -66,7 +66,7 @@ async function getSongDetail(songId) {
     artists: (song.ar || []).map(a => a.name).join(' / '),
     artistId: song.ar?.[0]?.id || null,
     album: song.al?.name || '',
-    cover: song.al?.picUrl || '',
+    cover: (song.al?.picUrl || '').replace(/^http:\/\//, 'https://'),
     duration: song.dt || 0,
     pop: song.pop || 0,
   };
@@ -114,7 +114,7 @@ async function search(keywords, { limit = 20, offset = 0, type = 1 } = {}) {
     name: s.name,
     artists: (s.ar || []).map(a => a.name).join(' / '),
     album: s.al?.name || '',
-    cover: s.al?.picUrl || '',
+    cover: (s.al?.picUrl || '').replace(/^http:\/\//, 'https://'),
     duration: s.dt || 0,
     pop: s.pop || 0,
   }));
@@ -242,7 +242,7 @@ async function getDailyRecommendPlaylists() {
     name: p.name,
     copywriter: p.copywriter || '',
     playcount: p.playcount || 0,
-    picUrl: p.picUrl || '',
+    picUrl: (p.picUrl || '').replace(/^http:\/\//, 'https://'),
   }));
 }
 

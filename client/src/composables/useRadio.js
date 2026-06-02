@@ -3,6 +3,12 @@ import { AudioEngine } from './AudioEngine.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 
+// 强制 HTTPS（解决 Mixed Content）
+function ensureHttps(url) {
+  if (!url) return url;
+  return url.replace(/^http:\/\//, 'https://');
+}
+
 /**
  * 电台控制器 — 轮询 /api/next，编排 AudioEngine 播放周期
  *
@@ -79,7 +85,7 @@ export function useRadio() {
 
     const firstTrack = playlist[0];
     const musicUrl = firstTrack
-      ? (firstTrack.audioUrl.startsWith('http') ? firstTrack.audioUrl : `${API_BASE}${firstTrack.audioUrl}`)
+      ? ensureHttps(firstTrack.audioUrl.startsWith('http') ? firstTrack.audioUrl : `${API_BASE}${firstTrack.audioUrl}`)
       : null;
 
     const djUrl = data.djAudio
@@ -91,9 +97,9 @@ export function useRadio() {
     // 预加载
     const secondTrack = playlist[1];
     if (secondTrack) {
-      const prefetchUrl = secondTrack.audioUrl.startsWith('http')
+      const prefetchUrl = ensureHttps(secondTrack.audioUrl.startsWith('http')
         ? secondTrack.audioUrl
-        : `${API_BASE}${secondTrack.audioUrl}`;
+        : `${API_BASE}${secondTrack.audioUrl}`);
       engine.prefetchAudio(prefetchUrl);
     }
 
@@ -294,9 +300,9 @@ export function useRadio() {
     _isStartingTrack = true;
     engine._stopMusic();
 
-    const musicUrl = track.audioUrl.startsWith('http')
+    const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
       ? track.audioUrl
-      : `${API_BASE}${track.audioUrl}`;
+      : `${API_BASE}${track.audioUrl}`);
 
     state.status = 'playing';
     engine._playMusic(musicUrl, 0).then(() => {
@@ -370,9 +376,9 @@ export function useRadio() {
     for (const track of playlist) {
       if (stopped) break;
 
-      const musicUrl = track.audioUrl.startsWith('http')
+      const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
         ? track.audioUrl
-        : `${API_BASE}${track.audioUrl}`;
+        : `${API_BASE}${track.audioUrl}`);
 
       state.status = 'playing';
 

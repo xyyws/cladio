@@ -124,7 +124,12 @@
       "Bash(git add *)",
       "Bash(rm -rf .git)",
       "Bash(git init *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(git branch *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(rm -rf \"C:/Users/041120XL/Desktop/Claudio/NeteaseCloudMusicApiBackup-main/.git\")",
+      "Bash(git commit *)"
     ]
   }
 }

@@ -111,7 +111,7 @@ watch(currentTime, (time) => {
     <div class="np-cover-wrapper">
       <div class="np-cover-ring" :class="{ spinning: isPlaying }">
         <div class="np-cover">
-          <img v-if="currentTrack?.coverUrl" :src="currentTrack.coverUrl" class="w-full h-full object-cover" alt="cover" />
+          <img v-if="currentTrack?.coverUrl" :src="currentTrack.coverUrl.replace(/^http:\/\//, 'https://')" class="w-full h-full object-cover" alt="cover" />
           <div v-else class="w-full h-full flex items-center justify-center text-text-dim text-5xl bg-cyber-surface">🎵</div>
         </div>
       </div>
