@@ -177,7 +177,8 @@
       "Bash(curl -s \"https://cladio-production.up.railway.app/api/search?keywords=周杰伦&limit=2\")",
       "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);d.results?.forEach\\(s=>console.log\\('✓', s.name, '-', s.artists\\)\\);}\\)\")",
       "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('✓', d.title, '-', d.artist, 'playable:', d.playable\\);}\\)\")",
-      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('✓ comments:', d.comments?.length\\);}\\)\")"
+      "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('✓ comments:', d.comments?.length\\);}\\)\")",
+      "Bash(grep -E \"\\\\.js$\")"
     ]
   }
 }

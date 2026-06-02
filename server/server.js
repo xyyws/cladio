@@ -14,19 +14,15 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // ── 内嵌网易云 API ──
-const fs = require('fs');
-let NCM_DIR = path.resolve(__dirname, 'NeteaseCloudMusicApiBackup-main');
-console.log('[NetEase API] 尝试路径1:', NCM_DIR, '存在:', fs.existsSync(NCM_DIR));
-if (!fs.existsSync(NCM_DIR)) {
-  NCM_DIR = path.resolve(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
-  console.log('[NetEase API] 尝试路径2:', NCM_DIR, '存在:', fs.existsSync(NCM_DIR));
-}
+// cwd = /app (Railway) 或项目根目录 (本地)
+const NCM_DIR = path.resolve(process.cwd(), 'NeteaseCloudMusicApiBackup-main');
 const NCM_SERVER = path.join(NCM_DIR, 'server.js');
-console.log('[NetEase API] 最终路径:', NCM_SERVER, '存在:', fs.existsSync(NCM_SERVER));
-if (fs.existsSync(NCM_SERVER)) {
+console.log('[NetEase API] cwd:', process.cwd());
+console.log('[NetEase API] 路径:', NCM_SERVER, '存在:', require('fs').existsSync(NCM_SERVER));
+
+if (require('fs').existsSync(NCM_SERVER)) {
   try {
     const ncmServer = require(NCM_SERVER);
-    console.log('[NetEase API] 模块加载成功');
     ncmServer.consturctServer().then(ncmApp => {
       if (ncmApp) {
         app.use(ncmApp);
