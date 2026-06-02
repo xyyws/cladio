@@ -13,10 +13,25 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
+// ── 内嵌网易云 API ──
+const NCM_PATH = path.join(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
+try {
+  const ncmServer = require(path.join(NCM_PATH, 'server'));
+  const constructFn = ncmServer.consturctServer || ncmServer.constructServer;
+  if (constructFn) {
+    constructFn().then(ncmApp => {
+      app.use(ncmApp);
+      console.log('[NetEase API] 已嵌入主服务');
+    }).catch(err => {
+      console.warn('[NetEase API] 嵌入失败:', err.message);
+    });
+  }
+} catch (err) {
+  console.warn('[NetEase API] 加载失败:', err.message);
+}
+
 // ── Static: TTS 缓存音频 ──
-// /audio/* 路径：正式 TTS 文件（带 MD5 哈希名）
 app.use('/audio', express.static(path.join(__dirname, 'cache')));
-// 根路径直接访问：mock-speech.mp3 等调试文件
 app.use(express.static(path.join(__dirname, 'cache')));
 
 // ── Routes ──
@@ -30,7 +45,8 @@ app.get('/health', (_req, res) => {
 // ── Error handling (must be last) ──
 app.use(errorHandler);
 
-// ── Start ──
-app.listen(config.port, () => {
-  console.log(`[Claudio BFF] listening on http://localhost:${config.port}`);
+// ── 启动（支持 Railway PORT） ──
+const PORT = process.env.PORT || config.port;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Claudio BFF] listening on http://0.0.0.0:${PORT}`);
 });

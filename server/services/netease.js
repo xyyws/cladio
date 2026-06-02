@@ -43,8 +43,11 @@ async function api(endpoint, params = {}, retryCount = 0) {
 
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Claudio/0.1' },
-      signal: AbortSignal.timeout(8000),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://music.163.com/',
+      },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
