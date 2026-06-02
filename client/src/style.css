@@ -1,0 +1,212 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&family=VT323&family=Nunito:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+/* ── Cyberpunk Theme Tokens ── */
+@theme {
+  --font-mono: 'Space Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-dot: 'VT323', monospace;
+
+  --color-cyber-bg: #06060e;
+  --color-cyber-surface: #0c0c18;
+  --color-cyber-panel: rgba(12, 12, 24, 0.85);
+  --color-cyber-border: rgba(0, 240, 255, 0.08);
+  --color-cyber-border-active: rgba(0, 240, 255, 0.25);
+
+  --color-neon-cyan: #00f0ff;
+  --color-neon-teal: #00e5cc;
+  --color-neon-purple: #bd00ff;
+  --color-neon-green: #00ff41;
+  --color-neon-pink: #ff2d78;
+  --color-neon-orange: #ff6b2b;
+
+  --color-text-primary: #e8e8ec;
+  --color-text-dim: #5a5a6e;
+  --color-text-muted: #3a3a4e;
+
+  --color-card-white: #f8f8fc;
+
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-blink: blink 1.2s ease-in-out infinite;
+  --animate-waveform: waveform-bar 1.4s ease-in-out infinite;
+  --animate-float: float-up 3s ease-in-out infinite;
+}
+
+/* ── Global Reset ── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-cyber-bg);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23bd00ff'/%3E%3Cstop offset='100%25' stop-color='%2300f0ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2300f0ff' stroke='%2300f0ff' stroke-width='4' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2306060e' stroke='%2306060e' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='url(%23g)'/%3E%3C/svg%3E") 2 2, auto;
+}
+
+a, button, [role="button"], .cursor-pointer, .theme-toggle, .hover-glow {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cdefs%3E%3ClinearGradient id='g-hover' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff007f'/%3E%3Cstop offset='100%25' stop-color='%237f00ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%23ff2d78' stroke='%23ff2d78' stroke-width='4' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2306060e' stroke='%2306060e' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='url(%23g-hover)'/%3E%3C/svg%3E") 2 2, pointer;
+}
+
+input[type="text"], input[type="search"], textarea, .chat-input-pill, .text-cursor {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' shape-rendering='crispEdges'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23bd00ff'/%3E%3Cstop offset='100%25' stop-color='%2300f0ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 7,3 H 8 V 4 H 12 V 3 H 13 V 5 H 11 V 15 H 13 V 17 H 12 V 16 H 8 V 17 H 7 V 15 H 9 V 5 H 7 Z' fill='%2300f0ff' stroke='%2300f0ff' stroke-width='4' stroke-linejoin='miter'/%3E%3Cpath d='M 7,3 H 8 V 4 H 12 V 3 H 13 V 5 H 11 V 15 H 13 V 17 H 12 V 16 H 8 V 17 H 7 V 15 H 9 V 5 H 7 Z' fill='%2306060e' stroke='%2306060e' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpath d='M 7,3 H 8 V 4 H 12 V 3 H 13 V 5 H 11 V 15 H 13 V 17 H 12 V 16 H 8 V 17 H 7 V 15 H 9 V 5 H 7 Z' fill='url(%23g)'/%3E%3C/svg%3E") 10 10, text;
+}
+
+/* ── 强力注入聊天底盘输入框高空呼吸感 ── */
+.chat-input-pill-container {
+  padding: 14px 20px !important;
+}
+
+.chat-input-pill {
+  padding: 4px 0 !important;
+  line-height: 1.6 !important;
+}
+
+/* ── Dot Grid Background ── */
+.dot-grid-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background-size: 16px 16px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Deep Gradient Underlay ── */
+.dot-grid-bg::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(30, 0, 60, 0.6) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgba(0, 30, 25, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 40% at 80% 90%, rgba(0, 20, 40, 0.3) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Glassmorphism Card ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+}
+
+.glass-card-light {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+/* ── Player Dark Glass Card ── */
+.player-card {
+  background: rgba(10, 10, 20, 0.4);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.05),
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(0, 240, 255, 0.05);
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.player-card:hover {
+  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.08),
+    0 12px 48px rgba(0, 0, 0, 0.7),
+    0 0 60px rgba(0, 240, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+/* ── Glow Effects ── */
+.glow-cyan {
+  filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.4));
+}
+
+.glow-green {
+  filter: drop-shadow(0 0 6px rgba(0, 255, 65, 0.5));
+}
+
+.glow-text-cyan {
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.5), 0 0 30px rgba(0, 240, 255, 0.2);
+}
+
+.glow-text-green {
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+
+/* ── Neon Border Glow ── */
+.neon-border-cyan {
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.1), inset 0 0 12px rgba(0, 240, 255, 0.03);
+}
+
+.neon-border-green {
+  border: 1px solid rgba(0, 255, 65, 0.3);
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.15);
+}
+
+/* ── Keyframes ── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes waveform-bar {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes float-up {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes scan-line {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.15);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.3);
+}
+
+/* ── Selection ── */
+::selection {
+  background: rgba(0, 240, 255, 0.2);
+  color: #fff;
+}

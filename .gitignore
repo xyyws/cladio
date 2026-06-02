@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+cache/
+*.cache
+
+# Logs
+*.log
+npm-debug.log*
+
+# Wolf
+.wolf/
+
+# Netease (submodule-like)
+NeteaseCloudMusicApiBackup-main/
+
+# Client
+client/node_modules/
+client/dist/
+
+# Server
+server/node_modules/
+server/cache/
+server/data/
