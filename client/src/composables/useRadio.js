@@ -171,6 +171,7 @@ export function useRadio() {
 
   async function start() {
     stopped = false;
+    clearTimeout(pollTimer); // 清除轮询，防止重复播放
     engine.ensureContext(); // 用户手势触发
     console.log('[Radio] 启动电台...');
 
@@ -184,6 +185,7 @@ export function useRadio() {
 
   async function startFromArsenal() {
     stopped = false;
+    clearTimeout(pollTimer); // 清除轮询，防止重复播放
     engine.ensureContext();
     state.status = 'loading';
     console.log('[Radio] 从弹药库播放...');
