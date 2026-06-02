@@ -129,10 +129,10 @@ async function search(keywords, { limit = 20, offset = 0, type = 1 } = {}) {
   return songs.map(s => ({
     id: s.id,
     name: s.name,
-    artists: (s.ar || []).map(a => a.name).join(' / '),
-    album: s.al?.name || '',
-    cover: (s.al?.picUrl || '').replace(/^http:\/\//, 'https://'),
-    duration: s.dt || 0,
+    artists: (s.ar || s.artists || []).map(a => a.name).join(' / '),
+    album: s.al?.name || s.album?.name || '',
+    cover: (s.al?.picUrl || s.album?.picUrl || '').replace(/^http:\/\//, 'https://'),
+    duration: s.dt || s.duration || 0,
     pop: s.pop || 0,
   }));
 }
