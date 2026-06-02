@@ -16,10 +16,9 @@ app.use(morgan('dev'));
 // ── 内嵌网易云 API ──
 const NCM_PATH = path.join(__dirname, '..', 'NeteaseCloudMusicApiBackup-main');
 try {
-  const ncmServer = require(path.join(NCM_PATH, 'server'));
-  // serveNcmApi 返回 Promise<app>，用 port:0 阻止它监听端口
-  ncmServer.serveNcmApi({ port: 0, host: '' }).then(ncmApp => {
-    if (ncmApp && ncmApp.use) {
+  const ncmServer = require(path.join(NCM_PATH, 'server.js'));
+  ncmServer.consturctServer().then(ncmApp => {
+    if (ncmApp) {
       app.use(ncmApp);
       console.log('[NetEase API] 已嵌入主服务');
     }
