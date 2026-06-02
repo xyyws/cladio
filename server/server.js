@@ -13,31 +13,6 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// ── 内嵌网易云 API ──
-// cwd = /app (Railway) 或项目根目录 (本地)
-const NCM_DIR = path.resolve(process.cwd(), 'NeteaseCloudMusicApiBackup-main');
-const NCM_SERVER = path.join(NCM_DIR, 'server.js');
-console.log('[NetEase API] cwd:', process.cwd());
-console.log('[NetEase API] 路径:', NCM_SERVER, '存在:', require('fs').existsSync(NCM_SERVER));
-
-if (require('fs').existsSync(NCM_SERVER)) {
-  try {
-    const ncmServer = require(NCM_SERVER);
-    ncmServer.consturctServer().then(ncmApp => {
-      if (ncmApp) {
-        app.use(ncmApp);
-        console.log('[NetEase API] 已嵌入主服务');
-      }
-    }).catch(err => {
-      console.warn('[NetEase API] 嵌入失败:', err.message);
-    });
-  } catch (err) {
-    console.warn('[NetEase API] 加载失败:', err.message);
-  }
-} else {
-  console.warn('[NetEase API] 文件不存在，跳过嵌入');
-}
-
 // ── Static: TTS 缓存音频 ──
 app.use('/audio', express.static(path.join(__dirname, 'cache')));
 app.use(express.static(path.join(__dirname, 'cache')));
