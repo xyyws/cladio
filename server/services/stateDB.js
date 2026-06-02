@@ -17,8 +17,15 @@
  */
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'claudio.db');
+const DB_DIR = path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DB_DIR, 'claudio.db');
+
+// 确保 data 目录存在
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
 
 let db = null;
 
