@@ -236,11 +236,11 @@ export function useRadio() {
 
   function toggle() {
     if (state.status === 'idle' || state.status === 'error') {
-      // 如果没有播放列表，从弹药库加载
-      if (state.playlist.length === 0) {
-        startFromArsenal();
-      } else {
-        start();
+      // 有播放列表时恢复播放，没有时不自动加载
+      if (state.playlist.length > 0 && state.currentIndex < state.playlist.length) {
+        _isStartingTrack = false;
+        engine.ensureContext();
+        playTrackByIndex(state.currentIndex);
       }
     } else {
       stop();

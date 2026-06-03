@@ -12,6 +12,7 @@ const commentsController = require('../controllers/commentsController');
 const lyricsController = require('../controllers/lyricsController');
 const artistController = require('../controllers/artistController');
 const likeController = require('../controllers/likeController');
+const qrLoginController = require('../controllers/qrLoginController');
 
 const router = Router();
 
@@ -62,5 +63,11 @@ router.post('/like', likeController.likeSong);
 
 // 15. GET /api/tts/:id — 轮询 TTS 生成状态
 router.get('/tts/:id', chatController.getTtsStatus);
+
+// 16. POST /api/qr/create — 生成登录二维码
+router.post('/qr/create', qrLoginController.createQR);
+
+// 17. GET /api/qr/check/:key — 检查扫码状态
+router.get('/qr/check/:key', qrLoginController.checkQR);
 
 module.exports = router;
