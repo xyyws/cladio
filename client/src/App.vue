@@ -180,6 +180,11 @@ const loginPhone = ref('')
 const loginPassword = ref('')
 const loginLoading = ref(false)
 const loginError = ref('')
+const showPhoneLogin = ref(false)
+const qrImage = ref('')
+const qrKey = ref('')
+const qrStatus = ref('请使用网易云音乐扫码登录')
+let qrCheckTimer = null
 
 function handleLogin() {
   if (login(loginName.value)) {
@@ -227,6 +232,58 @@ async function handleNeteaseLogin() {
 function handleLogout() {
   logout()
 }
+
+// QR Code Login
+async function startQRLogin() {
+  const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
+  try {
+    const res = await fetch(`${API_BASE}/api/qr/create`, { method: 'POST' })
+    const data = await res.json()
+    qrKey.value = data.key
+    qrImage.value = data.qrimg
+    qrStatus.value = '请使用网易云音乐扫码登录'
+    startQRCheck()
+  } catch (err) {
+    qrStatus.value = '生成二维码失败'
+  }
+}
+
+function startQRCheck() {
+  if (qrCheckTimer) clearInterval(qrCheckTimer)
+  qrCheckTimer = setInterval(async () => {
+    if (!qrKey.value) return
+    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
+    try {
+      const res = await fetch(`${API_BASE}/api/qr/check/${qrKey.value}`)
+      const data = await res.json()
+
+      if (data.code === 800) {
+        qrStatus.value = '二维码已过期，正在刷新...'
+        startQRLogin()
+      } else if (data.code === 801) {
+        qrStatus.value = '请使用网易云音乐扫码登录'
+      } else if (data.code === 802) {
+        qrStatus.value = '已扫码，请在手机上确认...'
+      } else if (data.code === 803) {
+        qrStatus.value = '登录成功！'
+        clearInterval(qrCheckTimer)
+        showLoginModal.value = false
+        pushSystemMsg('✅ 网易云登录成功')
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, 2000)
+}
+
+// 启动二维码登录当打开登录弹窗
+watch(showLoginModal, (val) => {
+  if (val && !showPhoneLogin.value) {
+    startQRLogin()
+  } else if (!val) {
+    if (qrCheckTimer) clearInterval(qrCheckTimer)
+  }
+})
 
 // ── App State ──
 const activeCard = ref('main') // 'main' | 'radio' | 'profile'
@@ -631,27 +688,24 @@ onUnmounted(() => {
       <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false">
         <div class="login-card">
           <h2 class="font-dot text-2xl text-text-primary tracking-widest mb-2">LOGIN</h2>
-          <p class="font-mono text-[10px] text-text-dim mb-6 tracking-wider">登录网易云音乐解锁更多功能</p>
+          <p class="font-mono text-[10px] text-text-dim mb-4 tracking-wider">登录网易云音乐解锁更多功能</p>
 
-          <!-- Quick Name Login -->
-          <div class="w-full mb-4">
-            <p class="font-mono text-[9px] text-text-dim mb-2 tracking-widest uppercase">快速设置昵称</p>
-            <input
-              v-model="loginName"
-              type="text"
-              placeholder="Your name..."
-              class="login-input font-mono"
-              @keydown.enter="handleLogin"
-            />
-            <button class="login-btn primary font-mono w-full mt-2" @click="handleLogin" :disabled="!loginName.trim()">SET NAME</button>
+          <!-- QR Code Login -->
+          <div class="w-full mb-4" v-if="!showPhoneLogin">
+            <div class="qr-container" v-if="qrImage">
+              <img :src="qrImage" class="qr-image" alt="QR Code" />
+              <p class="font-mono text-[9px] text-text-dim mt-2 text-center">{{ qrStatus }}</p>
+            </div>
+            <div v-else class="qr-loading">
+              <span class="text-text-dim text-xs font-mono">加载二维码...</span>
+            </div>
+            <button class="login-btn secondary font-mono w-full mt-3" @click="showPhoneLogin = true">
+              手机号登录
+            </button>
           </div>
 
-          <div class="login-divider">
-            <span class="font-mono text-[8px] text-text-muted tracking-widest">OR LOGIN WITH NETEASE</span>
-          </div>
-
-          <!-- Netease Login -->
-          <div class="w-full">
+          <!-- Phone Login -->
+          <div class="w-full" v-else>
             <input
               v-model="loginPhone"
               type="tel"
@@ -668,6 +722,9 @@ onUnmounted(() => {
             <p v-if="loginError" class="font-mono text-[10px] text-neon-pink mt-2">{{ loginError }}</p>
             <button class="login-btn primary font-mono w-full mt-3" @click="handleNeteaseLogin" :disabled="loginLoading">
               {{ loginLoading ? '登录中...' : 'LOGIN' }}
+            </button>
+            <button class="login-btn secondary font-mono w-full mt-2" @click="showPhoneLogin = false">
+              返回二维码登录
             </button>
           </div>
 
@@ -1366,9 +1423,9 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   top: 20px;
   left: -180px;
   border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.08),
-              -20px 5px 0 -8px rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.12),
+              -20px 5px 0 -8px rgba(255, 255, 255, 0.1);
   animation: cloud-drift 50s linear infinite;
 }
 .pixel-cloud.cloud-2 {
@@ -1377,8 +1434,8 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   top: 70px;
   right: -100px;
   border-radius: 50% 60% 40% 50% / 40% 50% 60% 50%;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 15px -5px 0 -3px rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 15px -5px 0 -3px rgba(255, 255, 255, 0.1);
   animation: cloud-drift-reverse 60s linear infinite;
 }
 
@@ -1869,6 +1926,26 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .login-btn.secondary:hover {
   border-color: rgba(255, 255, 255, 0.15);
   color: #e8e8ec;
+}
+
+.qr-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qr-image {
+  width: 200px;
+  height: 200px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+}
+
+.qr-loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
 }
 
 .login-divider {
