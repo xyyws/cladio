@@ -439,12 +439,11 @@ async function sendChat() {
       }
     }
 
-    // 歌曲推入队列 → 系统消息
+    // 歌曲推荐（不自动播放，用户点击才播放）
     if (json.tracks?.length > 0) {
       const names = json.tracks.slice(0, 3).map(t => t.title || t.songId).join(', ')
       const suffix = json.tracks.length > 3 ? ` +${json.tracks.length - 3}` : ''
-      pushSystemMsg(`🎵 已加入队列: ${names}${suffix}`)
-      playChatSongs(json)
+      pushSystemMsg(`🎵 推荐: ${names}${suffix}`)
     }
   } catch (err) {
     chatMessages.push({ role: 'assistant', content: `出错了: ${err.message}` })
@@ -958,7 +957,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .status-indicator.live .status-label { color: #00ff41; }
 
 /* ── Clock Area ── */
-.clock-area { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 10px; padding: 15px 0; overflow: visible; }
+.clock-area { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 10px; padding: 15px 0; overflow: visible; }
 .huge-clock { position: relative; z-index: 2; font-size: 80px; line-height: 1; color: #e8e8ec; text-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 0 0 40px rgba(0, 240, 255, 0.1); letter-spacing: 0.05em; }
 .huge-clock .colon { color: #00f0ff; text-shadow: 0 0 15px rgba(0, 240, 255, 0.4); margin: 0 -4px; transition: opacity 0.3s; }
 .huge-clock .colon.dim { opacity: 0.2; }
@@ -970,39 +969,39 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   top: 45%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 210px;
-  height: 95px;
+  width: 360px;
+  height: 150px;
   border-radius: 50%;
-  filter: blur(35px);
-  z-index: 1;
-  opacity: 0.42;
+  filter: blur(40px);
+  z-index: -1;
+  opacity: 0.85;
   pointer-events: none;
   transition: all 1.5s ease-in-out;
 }
 
 /* Sunny Weather: Warm Orange/Magenta */
 .weather-glow-halo.weather-sunny {
-  background: radial-gradient(circle, rgba(255, 110, 0, 0.7) 0%, rgba(189, 0, 255, 0.35) 60%, transparent 100%);
+  background: radial-gradient(circle, rgba(255, 120, 0, 0.9) 0%, rgba(189, 0, 255, 0.5) 60%, transparent 100%);
   animation: weather-breath-sunny 6s infinite ease-in-out;
 }
 @keyframes weather-breath-sunny {
-  0%, 100% { opacity: 0.42; transform: translate(-50%, -50%) scale(1); filter: blur(35px); }
-  50% { opacity: 0.58; transform: translate(-50%, -50%) scale(1.15); filter: blur(38px); }
+  0%, 100% { opacity: 0.8; transform: translate(-50%, -50%) scale(1); filter: blur(40px); }
+  50% { opacity: 0.95; transform: translate(-50%, -50%) scale(1.15); filter: blur(45px); }
 }
 
 /* Rainy Weather: Cyber Cyan/Deep Blue */
 .weather-glow-halo.weather-rainy {
-  background: radial-gradient(circle, rgba(0, 240, 255, 0.65) 0%, rgba(0, 50, 180, 0.35) 65%, transparent 100%);
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.85) 0%, rgba(0, 70, 220, 0.45) 65%, transparent 100%);
   animation: weather-breath-rainy 4s infinite ease-in-out;
 }
 @keyframes weather-breath-rainy {
-  0%, 100% { opacity: 0.38; transform: translate(-50%, -50%) scale(1); filter: blur(35px); }
-  50% { opacity: 0.52; transform: translate(-50%, -50%) scale(1.08); filter: blur(32px); }
+  0%, 100% { opacity: 0.78; transform: translate(-50%, -50%) scale(1); filter: blur(40px); }
+  50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.08); filter: blur(36px); }
 }
 
 /* Storm Weather: Deep Violet/Dark Indigo with Lightning */
 .weather-glow-halo.weather-storm {
-  background: radial-gradient(circle, rgba(189, 0, 255, 0.7) 0%, rgba(0, 20, 120, 0.4) 70%, transparent 100%);
+  background: radial-gradient(circle, rgba(189, 0, 255, 0.9) 0%, rgba(0, 30, 180, 0.5) 70%, transparent 100%);
   animation: weather-breath-storm 5s infinite ease-in-out, storm-lightning 8s infinite;
 }
 @keyframes weather-breath-storm {
@@ -1010,39 +1009,39 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   50% { transform: translate(-50%, -50%) scale(1.1); }
 }
 @keyframes storm-lightning {
-  0%, 92%, 94%, 98%, 100% { opacity: 0.38; filter: blur(35px); }
-  93%, 97% { opacity: 0.92; filter: blur(28px) brightness(1.6); }
+  0%, 92%, 94%, 98%, 100% { opacity: 0.78; filter: blur(40px); }
+  93%, 97% { opacity: 0.98; filter: blur(32px) brightness(1.6); }
 }
 
 /* Snowy Weather: Icy Cyan/Silver White */
 .weather-glow-halo.weather-snowy {
-  background: radial-gradient(circle, rgba(220, 245, 255, 0.65) 0%, rgba(90, 120, 180, 0.3) 65%, transparent 100%);
+  background: radial-gradient(circle, rgba(220, 245, 255, 0.85) 0%, rgba(100, 140, 200, 0.4) 65%, transparent 100%);
   animation: weather-breath-snowy 7s infinite ease-in-out;
 }
 @keyframes weather-breath-snowy {
-  0%, 100% { opacity: 0.38; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.52; transform: translate(-50%, -50%) scale(1.12); }
+  0%, 100% { opacity: 0.78; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.12); }
 }
 
 /* Misty/Fog Weather: Soft Grey/Milk White */
 .weather-glow-halo.weather-misty {
-  background: radial-gradient(circle, rgba(160, 160, 180, 0.5) 0%, rgba(70, 70, 90, 0.25) 75%, transparent 100%);
-  filter: blur(45px);
+  background: radial-gradient(circle, rgba(180, 180, 200, 0.7) 0%, rgba(90, 90, 110, 0.35) 75%, transparent 100%);
+  filter: blur(50px);
   animation: weather-breath-misty 10s infinite ease-in-out;
 }
 @keyframes weather-breath-misty {
-  0%, 100% { opacity: 0.32; transform: translate(-50%, -50%) scale(1); filter: blur(45px); }
-  50% { opacity: 0.42; transform: translate(-50%, -50%) scale(1.05); filter: blur(50px); }
+  0%, 100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); filter: blur(50px); }
+  50% { opacity: 0.82; transform: translate(-50%, -50%) scale(1.05); filter: blur(55px); }
 }
 
 /* Cloudy Weather: Muted Slate Blue/Dim Purple (Default) */
 .weather-glow-halo.weather-cloudy {
-  background: radial-gradient(circle, rgba(120, 135, 160, 0.5) 0%, rgba(75, 45, 115, 0.25) 70%, transparent 100%);
+  background: radial-gradient(circle, rgba(150, 175, 230, 0.8) 0%, rgba(138, 43, 226, 0.5) 60%, transparent 100%);
   animation: weather-breath-cloudy 8s infinite ease-in-out;
 }
 @keyframes weather-breath-cloudy {
-  0%, 100% { opacity: 0.32; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.45; transform: translate(-50%, -50%) scale(1.1); }
+  0%, 100% { opacity: 0.72; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.1); }
 }
 
 /* ── Weather Particles ── */
