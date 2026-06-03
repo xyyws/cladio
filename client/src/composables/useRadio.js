@@ -254,13 +254,15 @@ export function useRadio() {
     engine._stopDj();
     engine._stopMusic();
 
-    if (state.playlist.length > 0 && state.currentIndex < state.playlist.length - 1) {
-      state.currentIndex++;
+    if (state.playlist.length > 0) {
+      // 循环播放：到末尾回到第一首
+      state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
       _currentPlaylistIndex = state.currentIndex;
       playTrackByIndex(_currentPlaylistIndex);
       return;
     }
 
+    // 无播放列表，获取新歌
     state.currentIndex = 0;
     _currentPlaylistIndex = 0;
     state.status = 'idle';
@@ -275,8 +277,9 @@ export function useRadio() {
     engine._stopDj();
     engine._stopMusic();
 
-    if (state.playlist.length > 0 && state.currentIndex > 0) {
-      state.currentIndex--;
+    if (state.playlist.length > 0) {
+      // 循环播放：到开头回到最后一首
+      state.currentIndex = (state.currentIndex - 1 + state.playlist.length) % state.playlist.length;
       _currentPlaylistIndex = state.currentIndex;
       playTrackByIndex(_currentPlaylistIndex);
       return;

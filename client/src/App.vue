@@ -627,14 +627,14 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- ── Dividers & Queue ── -->
-      <div class="dividers font-mono mt-5">
+      <!-- ── Dividers & Queue (多首歌时显示) ── -->
+      <div class="dividers font-mono mt-5" v-if="radio.state.playlist.length > 1">
         <div class="flex justify-between items-center py-2.5 border-y border-white/10 text-text-dim text-[9px] tracking-[0.15em]">
           <span>QUEUE</span>
           <span>{{ radio.state.playlist.length }} TRACKS</span>
         </div>
 
-        <div class="queue-list max-h-[160px] overflow-y-auto my-1 flex flex-col gap-1 pr-1" v-if="radio.state.playlist.length > 0">
+        <div class="queue-list max-h-[160px] overflow-y-auto my-1 flex flex-col gap-1 pr-1">
           <div
             v-for="(track, index) in radio.state.playlist"
             :key="track.songId || index"
