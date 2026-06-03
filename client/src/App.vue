@@ -1355,26 +1355,25 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   }
 }
 
-/* Clouds - realistic shapes */
+/* Clouds - one big, one small */
 .pixel-cloud {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
   filter: blur(8px);
 }
 .pixel-cloud.cloud-1 {
-  width: 120px;
-  height: 40px;
+  width: 140px;
+  height: 45px;
   top: 20px;
-  left: -150px;
+  left: -160px;
   background: radial-gradient(ellipse, rgba(255, 255, 255, 0.12) 0%, rgba(200, 210, 230, 0.05) 70%, transparent 100%);
   animation: cloud-drift 40s linear infinite;
 }
 .pixel-cloud.cloud-2 {
-  width: 80px;
-  height: 30px;
-  top: 60px;
-  right: -100px;
+  width: 60px;
+  height: 20px;
+  top: 70px;
+  right: -80px;
   background: radial-gradient(ellipse, rgba(255, 255, 255, 0.1) 0%, rgba(200, 210, 230, 0.04) 70%, transparent 100%);
   animation: cloud-drift-reverse 50s linear infinite;
 }

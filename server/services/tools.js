@@ -290,6 +290,23 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'load_playlist',
+      description: '加载指定歌单并播放。当用户输入歌单ID或链接时调用，如"播放歌单123456"、"加载这个歌单"。',
+      parameters: {
+        type: 'object',
+        properties: {
+          playlist_id: {
+            type: 'string',
+            description: '歌单 ID',
+          },
+        },
+        required: ['playlist_id'],
+      },
+    },
+  },
 ];
 
 // ══════════════════════════════════════════════
@@ -377,6 +394,22 @@ async function executeTool(name, args) {
 
     case 'get_similar_songs': {
       return await netease.getSimilarSongs(args.song_id);
+    }
+
+    case 'load_playlist': {
+      const playlist = await netease.getPlaylistDetail(args.playlist_id);
+      if (!playlist) return { error: '歌单不存在' };
+      const tracks = await netease.api('/playlist/track/all', { id: args.playlist_id, limit: 50 });
+      return {
+        id: playlist.id,
+        name: playlist.name,
+        trackCount: playlist.trackCount,
+        tracks: (tracks?.songs || []).slice(0, 20).map(s => ({
+          id: s.id,
+          name: s.name,
+          artists: (s.ar || []).map(a => a.name).join(' / '),
+        })),
+      };
     }
 
     default:
