@@ -396,28 +396,22 @@ async function sendChat() {
     })
     const json = await res.json()
 
-    // AI 回复
-    chatMessages.push({ role: 'assistant', content: json.reply || '...', tracks: json.tracks && json.tracks.length > 0 ? json.tracks : null })
+    // AI 回复（先添加消息，TTS URL 后面补上）
+    const msgIndex = chatMessages.length
+    chatMessages.push({ role: 'assistant', content: json.reply || '...', tracks: json.tracks && json.tracks.length > 0 ? json.tracks : null, djUrl: null })
     scrollToBottom()
 
     // 播放 TTS 语音（异步轮询）
+    let djUrl = null
     if (json.djAudio) {
       // 直接有 djAudio（兼容旧逻辑）
       const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-      const djUrl = json.djAudio.startsWith('http') ? json.djAudio : `${API_BASE}${json.djAudio}`
-      try {
-        state.status = 'speaking'
-        engine.ensureContext()
-        await engine._playDj(djUrl)
-      } catch (err) {
-        console.warn('[Chat] TTS 播放失败:', err.message)
-      }
+      djUrl = json.djAudio.startsWith('http') ? json.djAudio : `${API_BASE}${json.djAudio}`
     } else if (json.ttsId) {
       // 异步 TTS：轮询等待生成完成
       const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-      const maxWait = 30000 // 最多等 30 秒
+      const maxWait = 30000
       const start = Date.now()
-      let djUrl = null
 
       while (Date.now() - start < maxWait) {
         await new Promise(r => setTimeout(r, 1000))
@@ -431,15 +425,17 @@ async function sendChat() {
           if (ttsData.status === 'failed') break
         } catch (_) {}
       }
+    }
 
-      if (djUrl) {
-        try {
-          state.status = 'speaking'
-          engine.ensureContext()
-          await engine._playDj(djUrl)
-        } catch (err) {
-          console.warn('[Chat] TTS 播放失败:', err.message)
-        }
+    // 存储 TTS URL 到消息中并播放
+    if (djUrl) {
+      chatMessages[msgIndex].djUrl = djUrl
+      try {
+        state.status = 'speaking'
+        engine.ensureContext()
+        await engine._playDj(djUrl)
+      } catch (err) {
+        console.warn('[Chat] TTS 播放失败:', err.message)
       }
     }
 
@@ -455,6 +451,18 @@ async function sendChat() {
     scrollToBottom()
   } finally {
     chatLoading.value = false
+  }
+}
+
+// ── Replay TTS ──
+async function replayTts(djUrl) {
+  if (!djUrl) return
+  try {
+    state.status = 'speaking'
+    engine.ensureContext()
+    await engine._playDj(djUrl)
+  } catch (err) {
+    console.warn('[Chat] TTS 重播失败:', err.message)
   }
 }
 
@@ -827,9 +835,14 @@ onUnmounted(() => {
                 <div class="bubble-content ai-bubble">
                   <span class="bubble-name font-mono">CLAUDIO</span>
                   <p class="bubble-text">{{ msg.content }}</p>
-                  <button class="replay-btn font-mono" v-if="i === chatMessages.length - 1 && !msg.tracks" @click="() => { activeCard = 'radio'; if (state.status === 'idle') toggle() }">
-                    ▶ REPLAY
-                  </button>
+                  <div class="flex gap-2 mt-2">
+                    <button class="replay-tts-btn font-mono" v-if="msg.djUrl" @click="replayTts(msg.djUrl)">
+                      🔊 Replay
+                    </button>
+                    <button class="replay-btn font-mono" v-if="i === chatMessages.length - 1 && !msg.tracks" @click="() => { activeCard = 'radio'; if (state.status === 'idle') toggle() }">
+                      ▶ REPLAY
+                    </button>
+                  </div>
                 </div>
               </template>
               <!-- User Bubble -->
@@ -1426,7 +1439,6 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .chat-messages { display: flex; flex-direction: column; gap: 16px; padding: 24px 8px 12px; overflow-y: auto; flex: 1; }
 
 .replay-btn {
-  margin-top: 8px;
   background: rgba(255, 95, 87, 0.1);
   border: 1px solid rgba(255, 95, 87, 0.3);
   color: #ff5f57;
@@ -1437,6 +1449,24 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   cursor: pointer;
   transition: all 0.2s;
   display: inline-block;
+}
+
+.replay-tts-btn {
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  color: #00f0ff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-block;
+}
+
+.replay-tts-btn:hover {
+  background: rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
 }
 .replay-btn:hover {
   background: rgba(255, 95, 87, 0.2);
