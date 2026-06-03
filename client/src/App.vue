@@ -92,19 +92,29 @@ const weatherParticles = ref([])
 function initWeatherParticles() {
   const list = []
   const isRain = weatherThemeClass.value === 'weather-rainy' || weatherThemeClass.value === 'weather-storm'
-  // 生成 35 个粒子，足够浓密显眼
-  for (let i = 0; i < 35; i++) {
+  const isStorm = weatherThemeClass.value === 'weather-storm'
+  const count = isStorm ? 60 : isRain ? 45 : 30
+
+  for (let i = 0; i < count; i++) {
+    const isHeavy = Math.random() > 0.6 // 40% 重粒子
     list.push({
       id: i,
       style: {
-        left: `${Math.random() * 100}%`,
-        top: `${Math.random() * -20}px`,
-        animationDelay: `${Math.random() * 5}s`,
-        animationDuration: isRain ? `${0.7 + Math.random() * 0.7}s` : `${2.5 + Math.random() * 2.5}s`, // 雨落得极快，雪落得慢
-        opacity: `${0.35 + Math.random() * 0.55}`,
-        // 动态随机雨丝高度或雪花大小
-        height: isRain ? `${6 + Math.random() * 12}px` : 'auto',
-        width: isRain ? '1px' : `${3 + Math.random() * 3}px`
+        left: `${Math.random() * 110 - 5}%`,
+        top: `${-10 - Math.random() * 20}px`,
+        animationDelay: `${Math.random() * 4}s`,
+        animationDuration: isRain
+          ? `${0.5 + Math.random() * 0.6}s`
+          : `${3 + Math.random() * 4}s`,
+        opacity: isRain
+          ? `${isHeavy ? 0.5 + Math.random() * 0.4 : 0.2 + Math.random() * 0.3}`
+          : `${0.4 + Math.random() * 0.5}`,
+        height: isRain
+          ? `${isHeavy ? 18 + Math.random() * 14 : 8 + Math.random() * 8}px`
+          : 'auto',
+        width: isRain
+          ? `${isHeavy ? 1.5 : 1}px`
+          : `${isHeavy ? 4 + Math.random() * 3 : 2 + Math.random() * 2}px`,
       }
     })
   }
@@ -1290,24 +1300,57 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   pointer-events: none;
 }
 .particle-rain {
-  background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.85));
-  filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.45));
-  animation: rain-fall linear infinite;
+  background: linear-gradient(to bottom, transparent 0%, rgba(0, 200, 255, 0.5) 30%, rgba(0, 240, 255, 0.9) 100%);
+  border-radius: 0 0 2px 2px;
+  filter: drop-shadow(0 0 1px rgba(0, 240, 255, 0.3));
+  animation: rain-fall ease-in infinite;
 }
 .particle-snow {
-  background: rgba(255, 255, 255, 0.88);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(200, 220, 255, 0.6) 100%);
   border-radius: 50%;
-  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
-  animation: snow-fall linear infinite;
+  filter: drop-shadow(0 0 2px rgba(200, 220, 255, 0.4));
+  animation: snow-fall ease-in-out infinite;
 }
 @keyframes rain-fall {
-  0% { transform: translateY(-20px) translateX(0); }
-  100% { transform: translateY(180px) translateX(12px); }
+  0% {
+    transform: translateY(-20px) translateX(0) scaleY(0.8);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(calc(100vh + 20px)) translateX(15px) scaleY(1.2);
+    opacity: 0;
+  }
 }
 @keyframes snow-fall {
-  0% { transform: translateY(-20px) translateX(0); }
-  50% { transform: translateY(90px) translateX(8px); }
-  100% { transform: translateY(180px) translateX(-6px); }
+  0% {
+    transform: translateY(-10px) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  25% {
+    transform: translateY(25vh) translateX(10px) rotate(90deg);
+  }
+  50% {
+    transform: translateY(50vh) translateX(-5px) rotate(180deg);
+  }
+  75% {
+    transform: translateY(75vh) translateX(8px) rotate(270deg);
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(calc(100vh + 10px)) translateX(-3px) rotate(360deg);
+    opacity: 0;
+  }
 }
 
 /* Neon Weather Highlight Texts */
