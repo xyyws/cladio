@@ -1355,27 +1355,31 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   }
 }
 
-/* Clouds - one big, one small */
+/* Clouds - soft irregular shapes */
 .pixel-cloud {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(8px);
+  filter: blur(12px);
 }
 .pixel-cloud.cloud-1 {
-  width: 140px;
-  height: 45px;
+  width: 160px;
+  height: 50px;
   top: 20px;
-  left: -160px;
-  background: radial-gradient(ellipse, rgba(255, 255, 255, 0.12) 0%, rgba(200, 210, 230, 0.05) 70%, transparent 100%);
-  animation: cloud-drift 40s linear infinite;
+  left: -180px;
+  border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.06),
+              -20px 5px 0 -8px rgba(255, 255, 255, 0.05);
+  animation: cloud-drift 45s linear infinite;
 }
 .pixel-cloud.cloud-2 {
-  width: 60px;
-  height: 20px;
+  width: 80px;
+  height: 28px;
   top: 70px;
-  right: -80px;
-  background: radial-gradient(ellipse, rgba(255, 255, 255, 0.1) 0%, rgba(200, 210, 230, 0.04) 70%, transparent 100%);
-  animation: cloud-drift-reverse 50s linear infinite;
+  right: -100px;
+  border-radius: 50% 60% 40% 50% / 40% 50% 60% 50%;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 15px -5px 0 -3px rgba(255, 255, 255, 0.05);
+  animation: cloud-drift-reverse 55s linear infinite;
 }
 
 @keyframes cloud-drift {

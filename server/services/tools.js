@@ -294,7 +294,7 @@ const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'load_playlist',
-      description: '加载指定歌单并播放。当用户输入歌单ID或链接时调用，如"播放歌单123456"、"加载这个歌单"。',
+      description: '加载网易云歌单的歌曲列表。当用户提供歌单ID，要求播放、加载、导入歌单时必须调用此工具。不要用 add_to_playlist，那是添加歌曲到歌单。',
       parameters: {
         type: 'object',
         properties: {
