@@ -1,13 +1,15 @@
+const { senseEnvironment } = require('../services/environment');
+
 /**
  * GET /api/context
  * 返回当前 6 维上下文的原始数据
  */
 async function getContext(_req, res, next) {
   try {
-    // TODO: 从各外部 API 拉取真实数据
+    const env = await senseEnvironment();
     res.json({
       timestamp: Date.now(),
-      weather: { city: 'Shanghai', temp: 22, condition: 'cloudy', humidity: 65 },
+      weather: env.weather,
       schedule: [
         { time: '09:00', title: '团队周会', location: 'Zoom' },
         { time: '14:00', title: '代码评审', location: '会议室B' },
@@ -15,8 +17,8 @@ async function getContext(_req, res, next) {
       history: [
         { songId: '347230', title: '晴天', artist: '周杰伦', playedAt: Date.now() - 3600000 },
       ],
-      currentTime: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
-      dayPhase: 'afternoon', // morning | afternoon | evening | night
+      currentTime: env.calendar.timeStr,
+      dayPhase: env.calendar.dayPhase,
     });
   } catch (err) {
     next(err);

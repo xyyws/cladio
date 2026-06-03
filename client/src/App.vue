@@ -22,6 +22,116 @@ provide('user', userCtx)
 
 const { hours, minutes, seconds, dateString } = useClock()
 
+// ── Weather & Environment integration ──
+const weatherInfo = ref({
+  city: 'Shanghai',
+  condition: '多云',
+  description: '多云',
+  temp: 20,
+  feelsLike: 20,
+  humidity: 50
+})
+
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
+
+async function fetchWeather() {
+  try {
+    const res = await fetch(`${API_BASE}/api/context`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.weather) {
+        weatherInfo.value = {
+          city: data.weather.city || 'Shanghai',
+          condition: data.weather.condition || '多云',
+          description: data.weather.description || '多云',
+          temp: data.weather.temp !== undefined ? data.weather.temp : 20,
+          feelsLike: data.weather.feelsLike !== undefined ? data.weather.feelsLike : 20,
+          humidity: data.weather.humidity !== undefined ? data.weather.humidity : 50
+        }
+      }
+    }
+  } catch (err) {
+    console.error('获取天气信息失败:', err)
+  }
+}
+
+// 自动更新星期（动态）
+const weekdayName = computed(() => {
+  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  return weekdays[new Date().getDay()]
+})
+
+// 天气特效 Class 映射
+const weatherThemeClass = computed(() => {
+  const cond = weatherInfo.value.condition;
+  if (!cond) return 'weather-cloudy';
+  if (cond.includes('晴')) return 'weather-sunny';
+  if (cond.includes('雨')) {
+    if (cond.includes('雷')) return 'weather-storm';
+    return 'weather-rainy';
+  }
+  if (cond.includes('雪')) return 'weather-snowy';
+  if (cond.includes('雾') || cond.includes('霾')) return 'weather-misty';
+  return 'weather-cloudy';
+})
+
+// 天气高亮文字 Class
+const weatherTextClass = computed(() => {
+  const cls = weatherThemeClass.value;
+  if (cls === 'weather-sunny') return 'text-neon-orange';
+  if (cls === 'weather-rainy') return 'text-neon-cyan';
+  if (cls === 'weather-storm') return 'text-neon-purple';
+  if (cls === 'weather-snowy') return 'text-white drop-shadow-[0_0_3px_rgba(255,255,255,0.6)]';
+  if (cls === 'weather-misty') return 'text-slate-400';
+  return 'text-neon-blue';
+})
+
+// 天气下落粒子列表
+const weatherParticles = ref([])
+
+function initWeatherParticles() {
+  const list = []
+  for (let i = 0; i < 20; i++) {
+    list.push({
+      id: i,
+      style: {
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * -10}px`,
+        animationDelay: `${Math.random() * 4}s`,
+        animationDuration: `${1.5 + Math.random() * 2}s`,
+        opacity: `${0.25 + Math.random() * 0.55}`
+      }
+    })
+  }
+  weatherParticles.value = list
+}
+
+const showParticles = computed(() => {
+  const cls = weatherThemeClass.value;
+  return cls === 'weather-rainy' || cls === 'weather-storm' || cls === 'weather-snowy';
+})
+
+const particleClass = computed(() => {
+  const cls = weatherThemeClass.value;
+  if (cls === 'weather-rainy' || cls === 'weather-storm') return 'particle-rain';
+  if (cls === 'weather-snowy') return 'particle-snow';
+  return '';
+})
+
+// 监听 AI 电台自动传回的天气
+watch(() => state.env, (newEnv) => {
+  if (newEnv) {
+    weatherInfo.value = {
+      city: weatherInfo.value.city || 'Shanghai', // 保持原有城市或降级
+      condition: newEnv.weather || '多云',
+      description: newEnv.weather || '多云',
+      temp: parseInt(newEnv.temperature) || 20,
+      feelsLike: parseInt(newEnv.temperature) || 20,
+      humidity: weatherInfo.value.humidity || 50
+    }
+  }
+}, { deep: true })
+
 // ── Login Modal ──
 const showLoginModal = ref(false)
 const loginName = ref('')
@@ -413,14 +523,22 @@ function getAudioData() {
 }
 
 // ── Lifecycle ──
+let weatherTimer = null
+
 onMounted(() => {
   particleSystem = initParticleSystem('particle-canvas', getAudioData)
   // 初始化主题
   document.body.style.backgroundColor = theme.value === 'light' ? '#f0f0f5' : '#030308'
+
+  // 天气集成
+  fetchWeather()
+  initWeatherParticles()
+  weatherTimer = setInterval(fetchWeather, 300000) // 5分钟轮询一次
 })
 onUnmounted(() => {
   particleSystem?.destroy()
   stop()
+  if (weatherTimer) clearInterval(weatherTimer)
 })
 </script>
 
@@ -536,17 +654,41 @@ onUnmounted(() => {
 
       <!-- ── Huge Clock Area ── -->
       <section class="clock-area mt-4">
+        <!-- 方案 B：天气全息氛围光环 -->
+        <div class="weather-glow-halo" :class="weatherThemeClass"></div>
+
+        <!-- 天气粒子效果（雨雪天气限定） -->
+        <div class="weather-particles-container" v-if="showParticles">
+          <div
+            v-for="p in weatherParticles"
+            :key="p.id"
+            class="weather-particle"
+            :class="particleClass"
+            :style="p.style"
+          ></div>
+        </div>
+
         <div class="huge-clock font-dot text-center leading-none">
           {{ hours }}&nbsp;&nbsp;{{ minutes }}
         </div>
         <div class="clock-sub font-mono flex flex-col items-center gap-1.5 mt-2">
-          <span class="text-text-primary text-sm font-bold tracking-widest">Monday</span>
+          <span class="text-text-primary text-sm font-bold tracking-widest">{{ weekdayName }}</span>
           <span class="text-text-dim text-[10px] tracking-widest uppercase">{{ dateString }}</span>
-          <div class="flex items-center gap-1.5 mt-1" v-if="isPlaying">
+
+          <!-- 极简天气状态行 -->
+          <div class="weather-status-line flex items-center gap-1.5 mt-0.5 font-mono text-[9px] tracking-widest text-text-dim uppercase">
+            <span>{{ weatherInfo.city }}</span>
+            <span>/</span>
+            <span class="text-text-primary">{{ weatherInfo.temp }}°C</span>
+            <span>/</span>
+            <span :class="weatherTextClass">{{ weatherInfo.description || weatherInfo.condition }}</span>
+          </div>
+
+          <div class="flex items-center gap-1.5 mt-1.5" v-if="isPlaying">
             <span class="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse shadow-[0_0_8px_rgba(0,255,65,0.6)]"></span>
             <span class="text-neon-green text-[9px] tracking-widest uppercase">{{ statusLabel }}</span>
           </div>
-          <div class="flex items-center gap-1.5 mt-1" v-else>
+          <div class="flex items-center gap-1.5 mt-1.5" v-else>
             <span class="w-1.5 h-1.5 rounded-full bg-text-dim"></span>
             <span class="text-text-dim text-[9px] tracking-widest uppercase">STANDBY</span>
           </div>
@@ -803,11 +945,150 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .status-indicator.live .status-label { color: #00ff41; }
 
 /* ── Clock Area ── */
-.clock-area { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 10px; }
-.huge-clock { font-size: 80px; line-height: 1; color: #e8e8ec; text-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 0 0 40px rgba(0, 240, 255, 0.1); letter-spacing: 0.05em; }
+.clock-area { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 10px; padding: 15px 0; overflow: visible; }
+.huge-clock { position: relative; z-index: 2; font-size: 80px; line-height: 1; color: #e8e8ec; text-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 0 0 40px rgba(0, 240, 255, 0.1); letter-spacing: 0.05em; }
 .huge-clock .colon { color: #00f0ff; text-shadow: 0 0 15px rgba(0, 240, 255, 0.4); margin: 0 -4px; transition: opacity 0.3s; }
 .huge-clock .colon.dim { opacity: 0.2; }
-.clock-sub { display: flex; align-items: center; justify-content: center; opacity: 0.8; }
+.clock-sub { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.8; }
+
+/* ── Weather option B: Hologram Glow Halo ── */
+.weather-glow-halo {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 210px;
+  height: 95px;
+  border-radius: 50%;
+  filter: blur(35px);
+  z-index: 1;
+  opacity: 0.42;
+  pointer-events: none;
+  transition: all 1.5s ease-in-out;
+}
+
+/* Sunny Weather: Warm Orange/Magenta */
+.weather-glow-halo.weather-sunny {
+  background: radial-gradient(circle, rgba(255, 110, 0, 0.7) 0%, rgba(189, 0, 255, 0.35) 60%, transparent 100%);
+  animation: weather-breath-sunny 6s infinite ease-in-out;
+}
+@keyframes weather-breath-sunny {
+  0%, 100% { opacity: 0.42; transform: translate(-50%, -50%) scale(1); filter: blur(35px); }
+  50% { opacity: 0.58; transform: translate(-50%, -50%) scale(1.15); filter: blur(38px); }
+}
+
+/* Rainy Weather: Cyber Cyan/Deep Blue */
+.weather-glow-halo.weather-rainy {
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.65) 0%, rgba(0, 50, 180, 0.35) 65%, transparent 100%);
+  animation: weather-breath-rainy 4s infinite ease-in-out;
+}
+@keyframes weather-breath-rainy {
+  0%, 100% { opacity: 0.38; transform: translate(-50%, -50%) scale(1); filter: blur(35px); }
+  50% { opacity: 0.52; transform: translate(-50%, -50%) scale(1.08); filter: blur(32px); }
+}
+
+/* Storm Weather: Deep Violet/Dark Indigo with Lightning */
+.weather-glow-halo.weather-storm {
+  background: radial-gradient(circle, rgba(189, 0, 255, 0.7) 0%, rgba(0, 20, 120, 0.4) 70%, transparent 100%);
+  animation: weather-breath-storm 5s infinite ease-in-out, storm-lightning 8s infinite;
+}
+@keyframes weather-breath-storm {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.1); }
+}
+@keyframes storm-lightning {
+  0%, 92%, 94%, 98%, 100% { opacity: 0.38; filter: blur(35px); }
+  93%, 97% { opacity: 0.92; filter: blur(28px) brightness(1.6); }
+}
+
+/* Snowy Weather: Icy Cyan/Silver White */
+.weather-glow-halo.weather-snowy {
+  background: radial-gradient(circle, rgba(220, 245, 255, 0.65) 0%, rgba(90, 120, 180, 0.3) 65%, transparent 100%);
+  animation: weather-breath-snowy 7s infinite ease-in-out;
+}
+@keyframes weather-breath-snowy {
+  0%, 100% { opacity: 0.38; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.52; transform: translate(-50%, -50%) scale(1.12); }
+}
+
+/* Misty/Fog Weather: Soft Grey/Milk White */
+.weather-glow-halo.weather-misty {
+  background: radial-gradient(circle, rgba(160, 160, 180, 0.5) 0%, rgba(70, 70, 90, 0.25) 75%, transparent 100%);
+  filter: blur(45px);
+  animation: weather-breath-misty 10s infinite ease-in-out;
+}
+@keyframes weather-breath-misty {
+  0%, 100% { opacity: 0.32; transform: translate(-50%, -50%) scale(1); filter: blur(45px); }
+  50% { opacity: 0.42; transform: translate(-50%, -50%) scale(1.05); filter: blur(50px); }
+}
+
+/* Cloudy Weather: Muted Slate Blue/Dim Purple (Default) */
+.weather-glow-halo.weather-cloudy {
+  background: radial-gradient(circle, rgba(120, 135, 160, 0.5) 0%, rgba(75, 45, 115, 0.25) 70%, transparent 100%);
+  animation: weather-breath-cloudy 8s infinite ease-in-out;
+}
+@keyframes weather-breath-cloudy {
+  0%, 100% { opacity: 0.32; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.45; transform: translate(-50%, -50%) scale(1.1); }
+}
+
+/* ── Weather Particles ── */
+.weather-particles-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 16px;
+}
+.weather-particle {
+  position: absolute;
+  pointer-events: none;
+}
+.particle-rain {
+  width: 1px;
+  height: 8px;
+  background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.5));
+  animation: rain-fall linear infinite;
+}
+.particle-snow {
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4));
+  animation: snow-fall linear infinite;
+}
+@keyframes rain-fall {
+  0% { transform: translateY(-10px) translateX(0); }
+  100% { transform: translateY(180px) translateX(8px); }
+}
+@keyframes snow-fall {
+  0% { transform: translateY(-10px) translateX(0); }
+  50% { transform: translateY(90px) translateX(6px); }
+  100% { transform: translateY(180px) translateX(-4px); }
+}
+
+/* Neon Weather Highlight Texts */
+.text-neon-orange {
+  color: #ff8400;
+  text-shadow: 0 0 6px rgba(255, 132, 0, 0.4);
+}
+.text-neon-cyan {
+  color: #00f0ff;
+  text-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+}
+.text-neon-purple {
+  color: #bd00ff;
+  text-shadow: 0 0 6px rgba(189, 0, 255, 0.4);
+}
+.text-neon-blue {
+  color: #0084ff;
+  text-shadow: 0 0 6px rgba(0, 132, 255, 0.4);
+}
 
 /* ── DJ Profile ── */
 .dj-profile-panel { padding: 0 8px; }

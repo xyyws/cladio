@@ -176,7 +176,7 @@ async function executeRadioCycle() {
 
   return {
     status: 200,
-    data: { say, djAudio, djTiming, playlist, segue: 'crossfade:2000' },
+    data: { say, djAudio, djTiming, playlist, segue: 'crossfade:2000', env },
   };
 }
 

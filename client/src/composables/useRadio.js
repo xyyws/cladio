@@ -31,6 +31,7 @@ export function useRadio() {
     currentIndex: 0,      // 当前播放歌曲索引
     error: null,
     lastUpdated: null,
+    env: null,            // 保存环境天气上下文
   });
 
   let pollTimer = null;
@@ -49,6 +50,9 @@ export function useRadio() {
         throw new Error(body.error?.message || `HTTP ${res.status}`);
       }
       const json = await res.json();
+      if (json.data && json.data.env) {
+        state.env = json.data.env;
+      }
       return json.data; // 取 data 字段
     } catch (err) {
       console.error('[Radio] /api/next 失败:', err.message);
@@ -379,20 +383,21 @@ export function useRadio() {
 
     console.log(`[Radio] 聊天推荐: ${playlist.length} 首歌，队列已更新`);
 
-    // 顺序播放所有推荐歌曲
+    // 顺序播放所有推荐歌曲（循环播放）
     stopped = false;
-    for (const track of playlist) {
-      if (stopped) break;
+    let playIndex = 0;
+    while (!stopped) {
+      const track = playlist[playIndex % playlist.length];
 
       const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
         ? track.audioUrl
         : `${API_BASE}${track.audioUrl}`);
 
+      state.currentIndex = playIndex % playlist.length;
       state.status = 'playing';
 
       try {
         await engine._playMusic(musicUrl, 0);
-        // 等待播放结束
         await new Promise(resolve => {
           const check = setInterval(() => {
             if (!engine.isPlaying || stopped) {
@@ -404,11 +409,13 @@ export function useRadio() {
       } catch (err) {
         console.warn(`[Radio] 歌曲 ${track.songId} 播放失败:`, err.message);
       }
+
+      playIndex++;
     }
 
+    // 播放结束（用户点了停止），不启动电台轮播
     if (!stopped) {
       state.status = 'idle';
-      schedulePoll(POLL_AFTER_MUSIC_MS);
     }
   }
 
