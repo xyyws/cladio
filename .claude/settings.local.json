@@ -183,7 +183,8 @@
       "Bash(node -e \"const c=[];process.stdin.on\\('data',d=>c.push\\(d\\)\\);process.stdin.on\\('end',\\(\\)=>{const d=JSON.parse\\(Buffer.concat\\(c\\).toString\\(\\)\\);console.log\\('say:', d.data?.say?.slice\\(0,60\\)\\);console.log\\('song:', d.data?.playlist?.[0]?.title\\);console.log\\('playable:', d.data?.playlist?.[0]?.playable\\);}\\)\")",
       "Bash(curl -s -X POST \"https://cladio-production.up.railway.app/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"来几首歌\",\"history\":[]}')",
       "Bash(curl -s -X POST \"https://cladio-production.up.railway.app/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"推荐几首好听的歌\",\"history\":[]}')",
-      "Bash(time curl *)"
+      "Bash(time curl *)",
+      "Bash(curl -s -X POST \"http://localhost:8080/api/chat\" -H \"Content-Type: application/json\" -d '{\"message\":\"播放歌单2107763308\",\"history\":[]}')"
     ]
   }
 }

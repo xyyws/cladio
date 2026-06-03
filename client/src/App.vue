@@ -1358,7 +1358,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 /* Clouds - soft irregular shapes */
 .pixel-cloud {
   position: absolute;
-  filter: blur(12px);
+  filter: blur(15px);
 }
 .pixel-cloud.cloud-1 {
   width: 160px;
@@ -1366,10 +1366,10 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   top: 20px;
   left: -180px;
   border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.06),
-              -20px 5px 0 -8px rgba(255, 255, 255, 0.05);
-  animation: cloud-drift 45s linear infinite;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.03),
+              -20px 5px 0 -8px rgba(255, 255, 255, 0.02);
+  animation: cloud-drift 50s linear infinite;
 }
 .pixel-cloud.cloud-2 {
   width: 80px;
@@ -1377,9 +1377,9 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   top: 70px;
   right: -100px;
   border-radius: 50% 60% 40% 50% / 40% 50% 60% 50%;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 15px -5px 0 -3px rgba(255, 255, 255, 0.05);
-  animation: cloud-drift-reverse 55s linear infinite;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 15px -5px 0 -3px rgba(255, 255, 255, 0.02);
+  animation: cloud-drift-reverse 60s linear infinite;
 }
 
 @keyframes cloud-drift {
