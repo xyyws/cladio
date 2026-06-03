@@ -1441,16 +1441,16 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 
 @keyframes cloud-drift {
   0% { transform: translateX(0); opacity: 0; }
-  5% { opacity: 1; }
-  45% { opacity: 1; }
-  50% { opacity: 0; transform: translateX(calc(100vw + 200px)); }
+  3% { opacity: 1; }
+  70% { opacity: 1; }
+  75% { opacity: 0; transform: translateX(calc(100vw + 200px)); }
   100% { opacity: 0; transform: translateX(calc(100vw + 200px)); }
 }
 @keyframes cloud-drift-reverse {
   0% { transform: translateX(0); opacity: 0; }
-  5% { opacity: 1; }
-  45% { opacity: 1; }
-  50% { opacity: 0; transform: translateX(calc(-100vw - 200px)); }
+  3% { opacity: 1; }
+  70% { opacity: 1; }
+  75% { opacity: 0; transform: translateX(calc(-100vw - 200px)); }
   100% { opacity: 0; transform: translateX(calc(-100vw - 200px)); }
 }
 
