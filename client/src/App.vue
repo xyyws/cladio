@@ -91,15 +91,20 @@ const weatherParticles = ref([])
 
 function initWeatherParticles() {
   const list = []
-  for (let i = 0; i < 20; i++) {
+  const isRain = weatherThemeClass.value === 'weather-rainy' || weatherThemeClass.value === 'weather-storm'
+  // 生成 35 个粒子，足够浓密显眼
+  for (let i = 0; i < 35; i++) {
     list.push({
       id: i,
       style: {
         left: `${Math.random() * 100}%`,
-        top: `${Math.random() * -10}px`,
-        animationDelay: `${Math.random() * 4}s`,
-        animationDuration: `${1.5 + Math.random() * 2}s`,
-        opacity: `${0.25 + Math.random() * 0.55}`
+        top: `${Math.random() * -20}px`,
+        animationDelay: `${Math.random() * 5}s`,
+        animationDuration: isRain ? `${0.7 + Math.random() * 0.7}s` : `${2.5 + Math.random() * 2.5}s`, // 雨落得极快，雪落得慢
+        opacity: `${0.35 + Math.random() * 0.55}`,
+        // 动态随机雨丝高度或雪花大小
+        height: isRain ? `${6 + Math.random() * 12}px` : 'auto',
+        width: isRain ? '1px' : `${3 + Math.random() * 3}px`
       }
     })
   }
@@ -131,6 +136,32 @@ watch(() => state.env, (newEnv) => {
     }
   }
 }, { deep: true })
+
+const weatherEmoji = computed(() => {
+  const cond = weatherInfo.value.condition;
+  if (!cond) return '☁️';
+  if (cond.includes('晴')) return '☀️';
+  if (cond.includes('雨')) {
+    if (cond.includes('雷')) return '⛈️';
+    return '🌧️';
+  }
+  if (cond.includes('雪')) return '❄️';
+  if (cond.includes('雾') || cond.includes('霾')) return '🌫️';
+  return '☁️';
+})
+
+const weatherLabel = computed(() => {
+  const cond = weatherInfo.value.condition;
+  if (!cond) return 'CLOUDY';
+  if (cond.includes('晴')) return 'SUNNY';
+  if (cond.includes('雨')) {
+    if (cond.includes('雷')) return 'STORM';
+    return 'RAINY';
+  }
+  if (cond.includes('雪')) return 'SNOWY';
+  if (cond.includes('雾') || cond.includes('霾')) return 'MISTY';
+  return 'CLOUDY';
+})
 
 // ── Login Modal ──
 const showLoginModal = ref(false)
@@ -439,11 +470,12 @@ async function sendChat() {
       }
     }
 
-    // 歌曲推荐（不自动播放，用户点击才播放）
+    // 歌曲推荐：TTS 播完后自动播放
     if (json.tracks?.length > 0) {
       const names = json.tracks.slice(0, 3).map(t => t.title || t.songId).join(', ')
       const suffix = json.tracks.length > 3 ? ` +${json.tracks.length - 3}` : ''
-      pushSystemMsg(`🎵 推荐: ${names}${suffix}`)
+      pushSystemMsg(`🎵 已加入队列: ${names}${suffix}`)
+      playChatSongs(json)
     }
   } catch (err) {
     chatMessages.push({ role: 'assistant', content: `出错了: ${err.message}` })
@@ -664,6 +696,38 @@ onUnmounted(() => {
         <!-- 方案 B：天气全息氛围光环 -->
         <div class="weather-glow-halo" :class="weatherThemeClass"></div>
 
+        <!-- 像素动态天气标志物场景 -->
+        <div class="weather-pixel-scene">
+          <!-- 1. 晴天：像素发光旋转太阳 -->
+          <div class="pixel-sun-wrapper" v-if="weatherThemeClass === 'weather-sunny'">
+            <div class="pixel-sun"></div>
+          </div>
+
+          <!-- 2. 多云/阴天：慢速漂浮的双像素云 -->
+          <div class="pixel-clouds" v-if="weatherThemeClass === 'weather-cloudy'">
+            <div class="pixel-cloud cloud-1"></div>
+            <div class="pixel-cloud cloud-2"></div>
+          </div>
+
+          <!-- 3. 雨雪天气：顶部常驻像素乌云 -->
+          <div class="pixel-clouds" v-if="showParticles">
+            <div class="pixel-cloud rain-cloud"></div>
+          </div>
+
+          <!-- 4. 雷雨天气：劈下的发光像素雷电 -->
+          <div class="pixel-lightning-wrapper" v-if="weatherThemeClass === 'weather-storm'">
+            <svg class="pixel-lightning" viewBox="0 0 24 24" fill="none">
+              <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="#ffea00" stroke="#ff7800" stroke-width="1.5"/>
+            </svg>
+          </div>
+
+          <!-- 5. 雾天：横向飘动的层叠像素烟雾带 -->
+          <div class="pixel-fog-lines" v-if="weatherThemeClass === 'weather-misty'">
+            <div class="pixel-fog-line fog-1"></div>
+            <div class="pixel-fog-line fog-2"></div>
+          </div>
+        </div>
+
         <!-- 天气粒子效果（雨雪天气限定） -->
         <div class="weather-particles-container" v-if="showParticles">
           <div
@@ -671,7 +735,15 @@ onUnmounted(() => {
             :key="p.id"
             class="weather-particle"
             :class="particleClass"
-            :style="p.style"
+            :style="{
+              left: p.style.left,
+              top: p.style.top,
+              animationDelay: p.style.animationDelay,
+              animationDuration: p.style.animationDuration,
+              opacity: p.style.opacity,
+              width: p.style.width,
+              height: p.style.height
+            }"
           ></div>
         </div>
 
@@ -1044,6 +1116,163 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.1); }
 }
 
+/* ── Weather Pixel Scene ── */
+.weather-pixel-scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Sunny Sun */
+.pixel-sun-wrapper {
+  position: absolute;
+  top: 15px;
+  right: 35px;
+  width: 32px;
+  height: 32px;
+  animation: sun-spin 25s linear infinite;
+  filter: drop-shadow(0 0 8px rgba(255, 170, 0, 0.6));
+}
+.pixel-sun {
+  width: 20px;
+  height: 20px;
+  background: #ffbe00;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #ff7800,
+              -6px -6px 0 -4px #ff7800,
+              6px -6px 0 -4px #ff7800,
+              -6px 6px 0 -4px #ff7800,
+              6px 6px 0 -4px #ff7800;
+  margin: 6px;
+  animation: sun-pulse 4s infinite ease-in-out;
+}
+@keyframes sun-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes sun-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+/* Cloudy / Rainy / Snowy Clouds */
+.pixel-cloud {
+  position: absolute;
+  background: rgba(240, 244, 255, 0.24);
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+.pixel-cloud.cloud-1 {
+  width: 50px;
+  height: 14px;
+  top: 15px;
+  left: -60px;
+  opacity: 0.55;
+  box-shadow: 12px -8px 0 rgba(240, 244, 255, 0.24),
+              26px -5px 0 rgba(240, 244, 255, 0.24),
+              8px 4px 0 -2px rgba(240, 244, 255, 0.24);
+  animation: cloud-float-left-right 32s linear infinite;
+}
+.pixel-cloud.cloud-2 {
+  width: 36px;
+  height: 10px;
+  top: 35px;
+  right: -50px;
+  opacity: 0.35;
+  box-shadow: -8px -6px 0 rgba(210, 215, 235, 0.18),
+              8px -4px 0 rgba(210, 215, 235, 0.18);
+  animation: cloud-float-right-left 42s linear infinite;
+}
+.pixel-cloud.rain-cloud {
+  width: 80px;
+  height: 18px;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(100, 115, 150, 0.28);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  box-shadow: -18px -6px 0 rgba(80, 95, 130, 0.28),
+              18px -5px 0 rgba(80, 95, 130, 0.28),
+              0 0 20px rgba(50, 60, 110, 0.2);
+  animation: rain-cloud-breath 4s infinite ease-in-out;
+}
+@keyframes rain-cloud-breath {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.65; }
+  50% { transform: translateX(-50%) scale(1.06); opacity: 0.85; }
+}
+@keyframes cloud-float-left-right {
+  0% { left: -60px; }
+  100% { left: 105%; }
+}
+@keyframes cloud-float-right-left {
+  0% { right: -60px; }
+  100% { right: 105%; }
+}
+
+/* Storm Lightning */
+.pixel-lightning-wrapper {
+  position: absolute;
+  top: 10px;
+  left: 55%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 32px;
+  z-index: 2;
+  pointer-events: none;
+}
+.pixel-lightning {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  filter: drop-shadow(0 0 10px #ffea00);
+  animation: lightning-strike 6s infinite ease-in-out;
+}
+@keyframes lightning-strike {
+  0%, 92%, 96%, 100% { opacity: 0; transform: scaleY(1); }
+  93%, 95% { opacity: 1; transform: scaleY(1.1) skewX(-6deg); }
+  94% { opacity: 0.25; }
+}
+
+/* Misty Fog Lines */
+.pixel-fog-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+.pixel-fog-line {
+  position: absolute;
+  height: 6px;
+  background: linear-gradient(90deg, transparent, rgba(200, 205, 220, 0.28) 30%, rgba(200, 205, 220, 0.28) 70%, transparent);
+  border-radius: 4px;
+  filter: blur(1.5px);
+}
+.pixel-fog-line.fog-1 {
+  width: 170px;
+  top: 25px;
+  left: -20px;
+  animation: fog-move-1 14s infinite ease-in-out;
+}
+.pixel-fog-line.fog-2 {
+  width: 130px;
+  bottom: 25px;
+  right: -10px;
+  animation: fog-move-2 18s infinite ease-in-out;
+  opacity: 0.75;
+}
+@keyframes fog-move-1 {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(65px); }
+}
+@keyframes fog-move-2 {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-50px); }
+}
+
 /* ── Weather Particles ── */
 .weather-particles-container {
   position: absolute;
@@ -1061,27 +1290,24 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   pointer-events: none;
 }
 .particle-rain {
-  width: 1px;
-  height: 8px;
-  background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.5));
+  background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.85));
+  filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.45));
   animation: rain-fall linear infinite;
 }
 .particle-snow {
-  width: 3px;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.88);
   border-radius: 50%;
-  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4));
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.5));
   animation: snow-fall linear infinite;
 }
 @keyframes rain-fall {
-  0% { transform: translateY(-10px) translateX(0); }
-  100% { transform: translateY(180px) translateX(8px); }
+  0% { transform: translateY(-20px) translateX(0); }
+  100% { transform: translateY(180px) translateX(12px); }
 }
 @keyframes snow-fall {
-  0% { transform: translateY(-10px) translateX(0); }
-  50% { transform: translateY(90px) translateX(6px); }
-  100% { transform: translateY(180px) translateX(-4px); }
+  0% { transform: translateY(-20px) translateX(0); }
+  50% { transform: translateY(90px) translateX(8px); }
+  100% { transform: translateY(180px) translateX(-6px); }
 }
 
 /* Neon Weather Highlight Texts */
