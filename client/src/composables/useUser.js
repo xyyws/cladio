@@ -19,6 +19,7 @@ function defaultUser() {
     name: '',
     avatar: '',
     loggedIn: false,
+    loginMode: null, // 'basic' | 'full' | null
     loginAt: null,
   }
 }
@@ -88,16 +89,39 @@ function stopListeningTimer() {
 
 export function useUser() {
 
-  // 登录
+  // 登录（旧版简单登录，保留兼容）
   function login(name) {
     if (!name || !name.trim()) return false
     user.id = 'u_' + Date.now().toString(36)
     user.name = name.trim()
     user.avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name.trim())}`
     user.loggedIn = true
+    user.loginMode = 'basic'
     user.loginAt = Date.now()
     stats.sessionsCount++
     return true
+  }
+
+  // UID 基础模式登录
+  function loginWithUid(uid, nickname) {
+    user.id = String(uid)
+    user.name = nickname || `UID:${uid}`
+    user.avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(uid)}`
+    user.loggedIn = true
+    user.loginMode = 'basic'
+    user.loginAt = Date.now()
+    stats.sessionsCount++
+  }
+
+  // Token 深度模式登录
+  function loginWithToken(uid, nickname, avatarUrl) {
+    user.id = String(uid)
+    user.name = nickname || `UID:${uid}`
+    user.avatar = avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(uid)}`
+    user.loggedIn = true
+    user.loginMode = 'full'
+    user.loginAt = Date.now()
+    stats.sessionsCount++
   }
 
   // 登出
@@ -107,6 +131,7 @@ export function useUser() {
     user.name = ''
     user.avatar = ''
     user.loggedIn = false
+    user.loginMode = null
     user.loginAt = null
   }
 
@@ -158,6 +183,8 @@ export function useUser() {
     uniqueSongsPlayed,
     level,
     login,
+    loginWithUid,
+    loginWithToken,
     logout,
     recordPlay,
     addFavorite,

@@ -1,15 +1,14 @@
 /**
- * Claude.js — 大模型适配器（OpenAI 兼容接口）
+ * Claude.js — 大模型适配器（OpenAI SDK）
  *
  * askBrain(prompt) — 向 mimo-v2.5-pro 发送请求，强制解析 JSON 响应。
- * 核心防御：Markdown 清洗 → JSON 解析 → 字段校验 → 重试。
+ * 使用 OpenAI SDK 替代手写 axios，内置重试和错误处理。
  */
-const axios = require('axios');
+const OpenAI = require('openai');
 const config = require('../config');
 
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1;
 const RETRY_DELAY_MS = 1000;
-const REQUEST_TIMEOUT_MS = 30000;
 
 const REQUIRED_FIELDS = ['say', 'play', 'reason', 'segue'];
 
@@ -17,7 +16,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ── Axios 实例 ──
+// ── OpenAI 客户端 ──
 
 function getClient() {
   const { apiKey, baseUrl } = config.llm;
@@ -26,13 +25,11 @@ function getClient() {
     throw new Error('LLM_API_KEY 未配置，请在 .env 中设置');
   }
 
-  return axios.create({
+  return new OpenAI({
+    apiKey,
     baseURL: baseUrl,
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    timeout: 30000,
+    maxRetries: 0, // 我们自己控制重试
   });
 }
 
@@ -46,11 +43,13 @@ const SYSTEM_PROMPT = `你是 Claudio，一位有品味的 AI 电台主播。
 - 偶尔引用网易云热评，但要自然融入串场词
 - 前奏响起时点出歌曲的灵魂，曲终时用有余韵的话过渡
 
-【重要规则】
-- 你的回复必须是一个纯粹的 JSON 对象
-- 不要输出任何思考过程、解释、分析或 Markdown
-- 不要以"首先""让我""好的"等词开头
-- 直接以 { 开头，以 } 结尾
+【绝对规则 — 违反即失败】
+1. 你的回复必须且只能是一个 JSON 对象
+2. 禁止输出任何 Markdown 标记（\`\`\`json \`\`\` 等）
+3. 禁止输出思考过程、解释、分析
+4. 禁止以"首先""让我""好的"等词开头
+5. 第一个字符必须是 {，最后一个字符必须是 }
+6. 违反以上任何一条，你的回复将被视为失败
 
 JSON 格式：
 {"say":"串场词，自然口语化，3-5句话，有温度和画面感","play":["歌曲ID_1","歌曲ID_2"],"reason":"选歌逻辑","segue":"crossfade:3000"}`;
@@ -58,10 +57,7 @@ JSON 格式：
 // ── Markdown 清洗 ──
 
 function stripMarkdown(text) {
-  return text
-    .replace(/```json\s*/gi, '')
-    .replace(/```\s*/g, '')
-    .trim();
+  return text.replace(/```(?:json)?\s*|\s*```/g, '').trim();
 }
 
 // ── JSON 强制解析 ──
@@ -129,8 +125,8 @@ function validateResponse(data) {
 async function askBrain(prompt, retryCount = 0) {
   const client = getClient();
 
-  // ── 发送请求（OpenAI 兼容格式） ──
-  const response = await client.post('/chat/completions', {
+  // ── 发送请求（OpenAI SDK） ──
+  const response = await client.chat.completions.create({
     model: config.llm.model,
     max_tokens: 1024,
     temperature: 0.7,
@@ -141,9 +137,7 @@ async function askBrain(prompt, retryCount = 0) {
     response_format: { type: 'json_object' },
   });
 
-  // mimo 兼容：content 可能为空，内容在 reasoning_content 里
-  const message = response.data?.choices?.[0]?.message;
-  const rawText = message?.content || message?.reasoning_content || '';
+  const rawText = response.choices[0]?.message?.content || '';
 
   console.log(`[LLM] 原始响应 (${rawText.length} chars): ${rawText.slice(0, 100)}...`);
 
@@ -180,7 +174,7 @@ async function askBrain(prompt, retryCount = 0) {
 async function askBrainSimple(prompt, retryCount = 0) {
   const client = getClient();
 
-  const response = await client.post('/chat/completions', {
+  const response = await client.chat.completions.create({
     model: config.llm.model,
     max_tokens: 256,
     temperature: 0.7,
@@ -191,8 +185,7 @@ async function askBrainSimple(prompt, retryCount = 0) {
     response_format: { type: 'json_object' },
   });
 
-  const message = response.data?.choices?.[0]?.message;
-  const rawText = message?.content || message?.reasoning_content || '';
+  const rawText = response.choices[0]?.message?.content || '';
 
   console.log(`[LLM] 介绍响应 (${rawText.length} chars): ${rawText.slice(0, 100)}`);
 

@@ -33,8 +33,8 @@ function sleep(ms) {
 async function api(endpoint, params = {}, retryCount = 0) {
   const base = config.netease.apiBase;
 
-  // 注入 SVIP Cookie（作为查询参数）
-  if (NETEASE_COOKIE) {
+  // 注入 SVIP Cookie（作为查询参数，但不覆盖已有的 per-request cookie）
+  if (NETEASE_COOKIE && !params.cookie) {
     params.cookie = NETEASE_COOKIE;
   }
 
@@ -320,6 +320,13 @@ async function getSimilarSongs(songId) {
   }));
 }
 
+// ── 运行时更新 Cookie（Token 注入用） ──
+
+function setCookie(cookie) {
+  NETEASE_COOKIE = cookie;
+  console.log('[NetEase] Cookie 已通过 Token 注入更新');
+}
+
 module.exports = {
   api,
   getSongDetail,
@@ -332,6 +339,7 @@ module.exports = {
   playlistTracks,
   getArtistDesc,
   login,
+  setCookie,
   getDailyRecommendPlaylists,
   getDailyRecommendSongs,
   getSimilarPlaylists,

@@ -80,6 +80,7 @@ export function useRadio() {
     }
 
     state.djAudio = data.djAudio;
+    state.say = data.say; // DJ 同步词
     state.playlist = playlist;
     state.currentIndex = 0;
     state.segue = data.segue;
@@ -235,15 +236,33 @@ export function useRadio() {
   }
 
   function toggle() {
-    if (state.status === 'idle' || state.status === 'error') {
+    console.log('[Radio] toggle called, status:', state.status, 'playlist:', state.playlist.length, 'currentIndex:', state.currentIndex);
+
+    if (state.status === 'paused') {
+      // 从暂停状态恢复
+      console.log('[Radio] Resuming from paused');
+      engine.resumeMusic();
+      state.status = 'playing';
+    } else if (state.status === 'idle' || state.status === 'error') {
       // 有播放列表时恢复播放，没有时不自动加载
       if (state.playlist.length > 0 && state.currentIndex < state.playlist.length) {
+        console.log('[Radio] Starting playback from idle/error');
         _isStartingTrack = false;
+        _failedCount = 0; // 重置失败计数
         engine.ensureContext();
         playTrackByIndex(state.currentIndex);
+      } else {
+        console.log('[Radio] No playlist or invalid index, fetching next');
+        // 没有播放列表，获取新歌
+        fetchNext().then(data => {
+          if (data) playCycle(data);
+        });
       }
     } else {
-      stop();
+      // 暂停而非停止
+      console.log('[Radio] Pausing playback');
+      engine.pauseMusic();
+      state.status = 'paused';
     }
   }
 
@@ -251,6 +270,9 @@ export function useRadio() {
   let _currentPlaylistIndex = 0;
   let _isStartingTrack = false; // 播放锁，防止多首同时播放
   let _playSessionId = 0; // 播放会话 ID，防止旧回调干扰
+  let _failedCount = 0; // 连续失败计数器
+  const MAX_CONSECUTIVE_FAILS = 3; // 最大连续失败次数
+  let _chatPlaySessionId = 0; // 聊天播放会话 ID，防止多个循环同时运行
 
   function next() {
     _isStartingTrack = false;
@@ -258,7 +280,17 @@ export function useRadio() {
     engine._stopDj();
     engine._stopMusic();
 
-    if (state.playlist.length > 0) {
+    // 检查连续失败次数
+    if (_failedCount >= MAX_CONSECUTIVE_FAILS) {
+      console.warn(`[Radio] 连续 ${_failedCount} 首播放失败，停止播放`);
+      state.status = 'error';
+      state.error = '音频资源过期，请刷新页面重试';
+      _failedCount = 0;
+      return;
+    }
+
+    // 如果播放列表有多首歌，循环播放；只有一首歌时获取新歌
+    if (state.playlist.length > 1) {
       // 循环播放：到末尾回到第一首
       state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
       _currentPlaylistIndex = state.currentIndex;
@@ -266,10 +298,11 @@ export function useRadio() {
       return;
     }
 
-    // 无播放列表，获取新歌
+    // 只有一首歌或无播放列表，获取新歌
     state.currentIndex = 0;
     _currentPlaylistIndex = 0;
     state.status = 'idle';
+    _failedCount = 0;
     fetchNext().then(data => {
       if (data) playCycle(data);
     });
@@ -314,14 +347,20 @@ export function useRadio() {
       : `${API_BASE}${track.audioUrl}`);
 
     state.status = 'playing';
-    engine._playMusic(musicUrl, 0).then(() => {
+    engine._playMusic(musicUrl, 0).then((result) => {
       if (sessionId !== _playSessionId) return;
       _isStartingTrack = false;
-      if (!stopped) next();
+
+      // 只有真正播放完成才自动下一首，被中断的不触发
+      if (result && result.finished === true) {
+        _failedCount = 0;
+        if (!stopped) next();
+      }
     }).catch(err => {
       if (sessionId !== _playSessionId) return;
       _isStartingTrack = false;
-      console.warn('[Radio] 播放失败:', err.message);
+      _failedCount++;
+      console.warn(`[Radio] 播放失败 (${_failedCount}/${MAX_CONSECUTIVE_FAILS}):`, err.message);
       if (!stopped) next();
     });
   }
@@ -371,9 +410,13 @@ export function useRadio() {
       return;
     }
 
-    // 停止当前播放
+    // 停止当前播放（中断之前的循环）
+    stopped = true;
     clearTimeout(pollTimer);
     engine._stopMusic();
+
+    // 递增会话 ID，旧循环会自动退出
+    const sessionId = ++_chatPlaySessionId;
 
     state.playlist = playlist;
     state.currentIndex = 0;
@@ -386,7 +429,7 @@ export function useRadio() {
     // 顺序播放所有推荐歌曲（循环播放）
     stopped = false;
     let playIndex = 0;
-    while (!stopped) {
+    while (!stopped && sessionId === _chatPlaySessionId) {
       const track = playlist[playIndex % playlist.length];
 
       const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
@@ -400,7 +443,13 @@ export function useRadio() {
         await engine._playMusic(musicUrl, 0);
         await new Promise(resolve => {
           const check = setInterval(() => {
-            if (!engine.isPlaying || stopped) {
+            // 只在真正停止或会话过期时退出，暂停时不退出
+            if (stopped || sessionId !== _chatPlaySessionId || !engine._musicEl) {
+              clearInterval(check);
+              resolve();
+            }
+            // 如果音频自然结束（ended），也退出
+            if (engine._musicEl && engine._musicEl.ended) {
               clearInterval(check);
               resolve();
             }

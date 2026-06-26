@@ -17,7 +17,7 @@ const { state, engine, start, startFromArsenal, stop, toggle, prev, next, setVol
 provide('radio', radio)
 
 const userCtx = useUser()
-const { user, stats, listeningHours, uniqueSongsPlayed, level, login, logout, recordPlay, addFavorite, startListeningTimer, stopListeningTimer } = userCtx
+const { user, stats, listeningHours, uniqueSongsPlayed, level, login, loginWithUid, loginWithToken, logout, recordPlay, addFavorite, startListeningTimer, stopListeningTimer } = userCtx
 provide('user', userCtx)
 
 const { hours, minutes, seconds, dateString } = useClock()
@@ -175,27 +175,18 @@ const weatherLabel = computed(() => {
 
 // ── Login Modal ──
 const showLoginModal = ref(false)
-const loginName = ref('')
-const loginPhone = ref('')
-const loginPassword = ref('')
+const loginMode = ref('uid') // 'uid' | 'token'
+const loginUid = ref('')
+const loginToken = ref('')
 const loginLoading = ref(false)
 const loginError = ref('')
-const showPhoneLogin = ref(false)
-const qrImage = ref('')
-const qrKey = ref('')
-const qrStatus = ref('请使用网易云音乐扫码登录')
-let qrCheckTimer = null
+const tokenSuccess = ref(false)
+const showTokenPanel = ref(false)
 
-function handleLogin() {
-  if (login(loginName.value)) {
-    showLoginModal.value = false
-    loginName.value = ''
-  }
-}
-
-async function handleNeteaseLogin() {
-  if (!loginPhone.value || !loginPassword.value) {
-    loginError.value = '请输入手机号和密码'
+async function handleUidLogin() {
+  const uid = loginUid.value.trim()
+  if (!uid) {
+    loginError.value = '请输入 UID'
     return
   }
 
@@ -203,24 +194,56 @@ async function handleNeteaseLogin() {
   loginError.value = ''
 
   try {
-    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-    const res = await fetch(`${API_BASE}/api/chat`, {
+    const res = await fetch(`${API_BASE}/api/auth/uid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `用手机号 ${loginPhone.value} 和密码登录网易云`,
-        history: [],
-      }),
+      body: JSON.stringify({ uid }),
     })
     const data = await res.json()
 
-    if (data.reply?.includes('成功') || data.reply?.includes('登录')) {
+    if (data.success) {
+      loginWithUid(data.uid, data.nickname)
       showLoginModal.value = false
-      loginPhone.value = ''
-      loginPassword.value = ''
-      pushSystemMsg('✅ 网易云登录成功')
+      loginUid.value = ''
     } else {
-      loginError.value = data.reply || '登录失败'
+      loginError.value = data.error || 'UID 登录失败'
+    }
+  } catch (err) {
+    loginError.value = '网络错误'
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+async function handleTokenLogin() {
+  const token = loginToken.value.trim()
+  if (!token) {
+    loginError.value = '请输入 MUSIC_U Token'
+    return
+  }
+
+  loginLoading.value = true
+  loginError.value = ''
+  tokenSuccess.value = false
+
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+    const data = await res.json()
+
+    if (data.success) {
+      loginWithToken(data.uid, data.nickname, data.avatarUrl)
+      tokenSuccess.value = true
+      setTimeout(() => {
+        showLoginModal.value = false
+        tokenSuccess.value = false
+        loginToken.value = ''
+      }, 1500)
+    } else {
+      loginError.value = data.error || 'Token 无效'
     }
   } catch (err) {
     loginError.value = '网络错误'
@@ -233,64 +256,13 @@ function handleLogout() {
   logout()
 }
 
-// QR Code Login
-async function startQRLogin() {
-  const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-  try {
-    const res = await fetch(`${API_BASE}/api/qr/create`, { method: 'POST' })
-    const data = await res.json()
-    qrKey.value = data.key
-    qrImage.value = data.qrimg
-    qrStatus.value = '请使用网易云音乐扫码登录'
-    startQRCheck()
-  } catch (err) {
-    qrStatus.value = '生成二维码失败'
-  }
-}
-
-function startQRCheck() {
-  if (qrCheckTimer) clearInterval(qrCheckTimer)
-  qrCheckTimer = setInterval(async () => {
-    if (!qrKey.value) return
-    const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-    try {
-      const res = await fetch(`${API_BASE}/api/qr/check/${qrKey.value}`)
-      const data = await res.json()
-
-      if (data.code === 800) {
-        qrStatus.value = '二维码已过期，正在刷新...'
-        startQRLogin()
-      } else if (data.code === 801) {
-        qrStatus.value = '请使用网易云音乐扫码登录'
-      } else if (data.code === 802) {
-        qrStatus.value = '已扫码，请在手机上确认...'
-      } else if (data.code === 803) {
-        qrStatus.value = '登录成功！'
-        clearInterval(qrCheckTimer)
-        showLoginModal.value = false
-        pushSystemMsg('✅ 网易云登录成功')
-      }
-    } catch (err) {
-      // ignore
-    }
-  }, 2000)
-}
-
-// 启动二维码登录当打开登录弹窗
-watch(showLoginModal, (val) => {
-  if (val && !showPhoneLogin.value) {
-    startQRLogin()
-  } else if (!val) {
-    if (qrCheckTimer) clearInterval(qrCheckTimer)
-  }
-})
-
 // ── App State ──
 const activeCard = ref('main') // 'main' | 'radio' | 'profile'
 const showNowPlaying = ref(false)
 const showSongDetail = ref(false)
 const detailSong = ref(null)
 const theme = ref(localStorage.getItem('claudio-theme') || 'dark')
+const queueExpanded = ref(false) // 歌单折叠展开状态
 
 function toggleTheme(newTheme) {
   theme.value = newTheme
@@ -300,12 +272,49 @@ function toggleTheme(newTheme) {
 
 const volume = ref(80)
 const chatInput = ref('')
-const chatMessages = reactive(JSON.parse(localStorage.getItem('claudio-chat') || '[]'))
+const chatMessages = reactive([])
 const chatLoading = ref(false)
 const agentLog = reactive([])
 const chatMessagesRef = ref(null)
 const floatingComments = ref([])
 let _lastCommentSongId = null
+const showMemory = ref(false) // 记忆面板开关
+const userMemories = reactive([]) // 用户记忆列表
+
+// 从后端加载聊天历史
+async function loadChatHistory() {
+  try {
+    const res = await fetch(`${API_BASE}/api/memory/chat?limit=50`)
+    const json = await res.json()
+    if (json.data?.length > 0) {
+      chatMessages.splice(0, chatMessages.length, ...json.data.map(m => ({
+        role: m.role,
+        content: m.content,
+        tracks: m.tracks,
+        djUrl: null,
+      })))
+    }
+  } catch (err) {
+    console.warn('[Memory] 加载聊天历史失败:', err.message)
+  }
+}
+
+// 从后端加载用户记忆
+async function loadUserMemories() {
+  try {
+    const res = await fetch(`${API_BASE}/api/memory/prefs`)
+    const json = await res.json()
+    if (json.data) {
+      userMemories.splice(0, userMemories.length, ...json.data)
+    }
+  } catch (err) {
+    console.warn('[Memory] 加载用户记忆失败:', err.message)
+  }
+}
+
+// 页面加载时获取
+loadChatHistory()
+loadUserMemories()
 
 // User Avatar Upload
 const userAvatar = ref(localStorage.getItem('claudio-user-avatar') || '')
@@ -348,11 +357,6 @@ function scrollToBottom() {
     }
   })
 }
-
-// 持久化聊天记录
-watch(chatMessages, () => {
-  localStorage.setItem('claudio-chat', JSON.stringify(chatMessages.slice(-50)))
-}, { deep: true })
 
 // 加载状态变化时滚动
 watch(chatLoading, () => {
@@ -417,17 +421,21 @@ function formatTime(s) {
 }
 
 watch(() => state.status, (val) => {
-  if (val === 'playing') startProgressPolling()
-  else { stopProgressPolling(); progress.currentTime = 0; progress.duration = 0; progress.percent = 0 }
+  if (val === 'playing' || val === 'speaking') startProgressPolling()
+  else if (val === 'paused') { stopProgressPolling() } // 暂停时保持进度
+  else if (val === 'idle' || val === 'error') { stopProgressPolling(); progress.currentTime = 0; progress.duration = 0; progress.percent = 0 }
+  // loading 状态不重置进度
 })
 
 // ── Computed ──
 const isPlaying = computed(() => state.status === 'playing' || state.status === 'speaking')
+const isActive = computed(() => state.status === 'playing' || state.status === 'speaking' || state.status === 'paused')
 const statusLabel = computed(() => {
   switch (state.status) {
     case 'loading': return 'FETCHING...'
     case 'speaking': return 'SPEAKING'
     case 'playing': return 'ON AIR'
+    case 'paused': return 'PAUSED'
     case 'error': return 'ERROR'
     default: return 'STANDBY'
   }
@@ -687,48 +695,91 @@ onUnmounted(() => {
     <Transition name="fade-scale">
       <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false">
         <div class="login-card">
-          <h2 class="font-dot text-2xl text-text-primary tracking-widest mb-2">LOGIN</h2>
-          <p class="font-mono text-[10px] text-text-dim mb-4 tracking-wider">登录网易云音乐解锁更多功能</p>
+          <h2 class="font-dot text-xl text-text-primary tracking-widest mb-1">CONNECT</h2>
+          <p class="font-mono text-[9px] text-text-dim mb-5 tracking-wider uppercase">接入你的网易云音乐</p>
 
-          <!-- QR Code Login -->
-          <div class="w-full mb-4" v-if="!showPhoneLogin">
-            <div class="qr-container" v-if="qrImage">
-              <img :src="qrImage" class="qr-image" alt="QR Code" />
-              <p class="font-mono text-[9px] text-text-dim mt-2 text-center">{{ qrStatus }}</p>
+          <!-- UID 基础模式 -->
+          <div class="w-full mb-4" v-if="!showTokenPanel">
+            <div class="login-section-label font-mono">
+              <span class="text-neon-cyan/60">&gt;</span> ENTER UID:
             </div>
-            <div v-else class="qr-loading">
-              <span class="text-text-dim text-xs font-mono">加载二维码...</span>
+            <div class="flex gap-2 mt-2">
+              <input
+                v-model="loginUid"
+                type="text"
+                placeholder="网易云用户 UID"
+                class="login-input font-mono flex-1"
+                @keydown.enter="handleUidLogin"
+              />
+              <button
+                class="login-btn-go"
+                @click="handleUidLogin"
+                :disabled="loginLoading"
+              >→</button>
             </div>
-            <button class="login-btn secondary font-mono w-full mt-3" @click="showPhoneLogin = true">
-              手机号登录
+            <p v-if="loginError && !showTokenPanel" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
+            <div class="login-hint font-mono mt-3">
+              <span class="text-text-dim/50">▸</span> 读取公开红心歌单
+              <br/>
+              <span class="text-text-dim/50">▸</span> 无每日推荐 · 无相似歌曲
+            </div>
+
+            <button
+              class="login-btn-system-override mt-5"
+              @click="showTokenPanel = true; loginError = ''"
+            >
+              <span class="override-dot"></span>
+              SYSTEM OVERRIDE
             </button>
           </div>
 
-          <!-- Phone Login -->
+          <!-- Token 深度模式 -->
           <div class="w-full" v-else>
-            <input
-              v-model="loginPhone"
-              type="tel"
-              placeholder="手机号"
-              class="login-input font-mono"
-            />
-            <input
-              v-model="loginPassword"
-              type="password"
-              placeholder="密码"
-              class="login-input font-mono mt-2"
-              @keydown.enter="handleNeteaseLogin"
-            />
-            <p v-if="loginError" class="font-mono text-[10px] text-neon-pink mt-2">{{ loginError }}</p>
-            <button class="login-btn primary font-mono w-full mt-3" @click="handleNeteaseLogin" :disabled="loginLoading">
-              {{ loginLoading ? '登录中...' : 'LOGIN' }}
-            </button>
-            <button class="login-btn secondary font-mono w-full mt-2" @click="showPhoneLogin = false">
-              返回二维码登录
+            <div class="login-section-label font-mono">
+              <span class="text-neon-pink/60">&gt;</span> INJECT SESSION TOKEN
+              <span class="text-text-dim/40">(MUSIC_U)</span>:
+            </div>
+            <div class="flex gap-2 mt-2">
+              <input
+                v-model="loginToken"
+                type="text"
+                placeholder="粘贴 MUSIC_U Cookie"
+                class="login-input font-mono flex-1"
+                @keydown.enter="handleTokenLogin"
+              />
+              <button
+                class="login-btn-go"
+                @click="handleTokenLogin"
+                :disabled="loginLoading"
+              >→</button>
+            </div>
+            <p v-if="loginError && showTokenPanel" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
+
+            <!-- Token 成功 -->
+            <div v-if="tokenSuccess" class="login-token-success mt-3">
+              <p class="font-mono text-[10px] text-green-400">SESSION CONNECTED ✓</p>
+              <p class="font-mono text-[10px] text-green-400/60">FULL ACCESS GRANTED</p>
+            </div>
+
+            <!-- 极客说明书（打字机效果） -->
+            <div v-if="!tokenSuccess" class="login-geek-guide mt-4">
+              <p class="font-mono text-[8px] text-text-dim/40 leading-relaxed">
+                <span class="text-neon-pink/40">1.</span> 打开 music.163.com 并登录<br/>
+                <span class="text-neon-pink/40">2.</span> F12 → Application → Cookies<br/>
+                <span class="text-neon-pink/40">3.</span> 找到 MUSIC_U 复制值<br/>
+                <span class="text-neon-pink/40">4.</span> 粘贴到上方输入框
+              </p>
+            </div>
+
+            <button
+              class="login-btn secondary font-mono w-full mt-4"
+              @click="showTokenPanel = false; loginError = ''; tokenSuccess = false"
+            >
+              ← BACK
             </button>
           </div>
 
-          <button class="login-btn secondary font-mono w-full mt-3" @click="showLoginModal = false">CANCEL</button>
+          <button class="login-btn secondary font-mono w-full mt-3" @click="showLoginModal = false; loginError = ''; tokenSuccess = false">CANCEL</button>
         </div>
       </div>
     </Transition>
@@ -743,8 +794,10 @@ onUnmounted(() => {
           <span class="font-mono text-text-primary tracking-[0.3em] text-sm uppercase">Claudio</span>
         </div>
         <div class="flex items-center gap-2.5 font-mono text-[8px] tracking-[0.1em] text-text-dim uppercase flex-shrink-0">
-          <div class="px-[14px] py-[6px] rounded-full border border-white/10 cursor-pointer hover-glow flex items-center justify-center transition-all duration-300 whitespace-nowrap flex-shrink-0" @click="showLoginModal = true">
-            <span>{{ user.loggedIn ? user.name.toUpperCase() : 'LOGIN' }}</span>
+          <div class="login-pill" :class="{ 'login-pill--basic': user.loginMode === 'basic', 'login-pill--full': user.loginMode === 'full' }" @click="showLoginModal = true">
+            <span v-if="user.loggedIn && user.loginMode === 'full'" class="login-status-dot login-status-dot--full"></span>
+            <span v-else-if="user.loggedIn" class="login-status-dot login-status-dot--basic"></span>
+            <span>{{ user.loggedIn ? (user.loginMode === 'full' ? 'FULL ACCESS' : 'UID:' + user.id) : 'LOGIN' }}</span>
           </div>
 
           <!-- Theme Toggle Switch -->
@@ -917,23 +970,26 @@ onUnmounted(() => {
 
       <!-- ── Dividers & Queue (多首歌时显示) ── -->
       <div class="dividers font-mono mt-5" v-if="radio.state.playlist.length > 1">
-        <div class="flex justify-between items-center py-2.5 border-y border-white/10 text-text-dim text-[9px] tracking-[0.15em]">
-          <span>QUEUE</span>
+        <div class="flex justify-between items-center py-2.5 border-y border-white/10 text-text-dim text-[9px] tracking-[0.15em] cursor-pointer" @click="queueExpanded = !queueExpanded">
+          <span class="flex items-center gap-2">
+            <span class="transition-transform" :class="queueExpanded ? 'rotate-90' : ''">▶</span>
+            <span>QUEUE</span>
+          </span>
           <span>{{ radio.state.playlist.length }} TRACKS</span>
         </div>
 
-        <div class="queue-list max-h-[160px] overflow-y-auto my-1 flex flex-col gap-1 pr-1">
+        <div v-if="queueExpanded" class="queue-list max-h-[160px] overflow-y-auto my-1 flex flex-col gap-1 pr-1">
           <div
             v-for="(track, index) in radio.state.playlist"
             :key="track.songId || index"
             class="flex justify-between items-center px-2 py-2 rounded-[4px] cursor-pointer transition-colors"
-            :class="isPlaying && index === state.currentIndex ? 'bg-neon-green/10 text-neon-green' : 'hover:bg-white/5 text-text-dim'"
+            :class="isActive && index === state.currentIndex ? 'bg-neon-green/10 text-neon-green' : 'hover:bg-white/5 text-text-dim'"
             @click="radio.playTrack(track)"
           >
             <div class="flex items-center gap-3 flex-1 overflow-hidden">
-              <span class="text-[9px] w-3 flex-shrink-0" v-if="!(isPlaying && index === state.currentIndex)">{{ index + 1 }}</span>
+              <span class="text-[9px] w-3 flex-shrink-0" v-if="!(isActive && index === state.currentIndex)">{{ index + 1 }}</span>
               <span class="text-[9px] w-3 flex-shrink-0 text-center" v-else>▶</span>
-              <span class="text-xs font-sans font-bold truncate" :class="isPlaying && index === state.currentIndex ? 'text-neon-green' : 'text-text-primary'">
+              <span class="text-xs font-sans font-bold truncate" :class="isActive && index === state.currentIndex ? 'text-neon-green' : 'text-text-primary'">
                 {{ track.title || track.songId }}
               </span>
             </div>
@@ -995,20 +1051,6 @@ onUnmounted(() => {
                 </label>
               </template>
             </div>
-
-            <!-- Track List (right after AI message) -->
-            <div v-if="msg.role === 'assistant' && msg.tracks && msg.tracks.length" class="chat-track-list">
-              <div v-for="(track, tidx) in msg.tracks" :key="tidx"
-                   class="chat-track-item"
-                   :class="(state.playlist?.[state.currentIndex]?.songId === track.songId) ? 'active' : ''"
-                   @click="playTrack(track)">
-                <span class="chat-track-icon" v-if="(state.playlist?.[state.currentIndex]?.songId === track.songId)">▶</span>
-                <div class="chat-track-info">
-                  <span class="chat-track-title">{{ track.title || track.songId }}</span>
-                  <span class="chat-track-artist">{{ track.artist || 'Unknown' }}</span>
-                </div>
-              </div>
-            </div>
           </template>
 
           <!-- Loading -->
@@ -1053,8 +1095,12 @@ onUnmounted(() => {
               :disabled="chatLoading"
             />
             <div class="flex items-center gap-2 ml-2">
+              <!-- Memory -->
+              <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="showMemory = !showMemory; if (showMemory) loadUserMemories()" :class="{ 'text-neon-cyan': showMemory }" title="Memory">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7.5L12 22l-3-5.5C7 14.5 5 12 5 9a7 7 0 0 1 7-7z"></path><circle cx="12" cy="9" r="2.5"></circle></svg>
+              </button>
               <!-- Clear Chat -->
-              <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="chatMessages.length = 0" title="Clear chat">
+              <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="chatMessages.length = 0; fetch(`${API_BASE}/api/memory/chat`, { method: 'DELETE' })" title="Clear chat">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
               <!-- Send -->
@@ -1069,6 +1115,34 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- ═══ Memory Panel ═══ -->
+      <Transition name="slide-right">
+        <div v-if="showMemory" class="memory-panel">
+          <div class="memory-header">
+            <span class="font-mono text-[10px] tracking-widest text-neon-cyan">MEMORY</span>
+            <button class="icon-btn hover-glow opacity-60 hover:opacity-100" @click="showMemory = false">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <!-- 用户记忆列表 -->
+          <div class="memory-body">
+            <div v-if="userMemories.length === 0" class="memory-empty">
+              <span class="text-text-dim text-[10px]">还没有记忆...</span>
+              <span class="text-text-dim/60 text-[9px]">聊天时 AI 会自动学习你的偏好</span>
+            </div>
+            <div v-for="mem in userMemories" :key="mem.id" class="memory-item">
+              <div class="memory-item-header">
+                <span class="memory-category">{{ mem.category }}</span>
+                <span class="memory-confidence">{{ Math.round(mem.confidence * 100) }}%</span>
+              </div>
+              <div class="memory-key">{{ mem.key }}</div>
+              <div class="memory-value">{{ mem.value }}</div>
+            </div>
+          </div>
+        </div>
+      </Transition>
 
     </main>
   </div>
@@ -1418,10 +1492,10 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   filter: blur(10px);
 }
 .pixel-cloud.cloud-1 {
-  width: 160px;
-  height: 50px;
+  width: 100px;
+  height: 32px;
   top: 20px;
-  left: -180px;
+  left: -120px;
   border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%;
   background: rgba(255, 255, 255, 0.15);
   box-shadow: 30px -10px 0 -5px rgba(255, 255, 255, 0.12),
@@ -1549,69 +1623,6 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 .agent-log-line { padding-left: 40px; margin-top: -8px; opacity: 0.7; }
 
-/* ── Chat Track List (outside bubble) ── */
-.chat-track-list {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: -8px 0 8px 0;
-  padding: 4px;
-  background: rgba(0, 240, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 10px;
-  width: fit-content;
-  max-width: 65%;
-}
-
-.chat-track-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.chat-track-item:hover {
-  background: rgba(0, 255, 65, 0.1);
-  box-shadow: 0 0 12px rgba(0, 255, 65, 0.15);
-}
-
-.chat-track-item.active {
-  background: rgba(0, 255, 65, 0.1);
-}
-
-.chat-track-icon {
-  font-size: 8px;
-  color: #00ff41;
-  flex-shrink: 0;
-}
-
-.chat-track-icon.dim {
-  display: none;
-}
-
-.chat-track-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.chat-track-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #e8e8ec;
-  white-space: nowrap;
-}
-
-.chat-track-artist {
-  font-size: 9px;
-  color: #5a5a6e;
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
 /* ── System Messages ── */
 .system-msg {
   width: 100%;
@@ -1699,14 +1710,6 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .theme-light .chat-input-pill-container .icon-btn:hover { color: #111111 !important; }
 .theme-light .chat-input-pill-container .icon-btn.bg-white\/10 { background-color: rgba(0, 0, 0, 0.08) !important; color: #111111 !important; }
 .theme-light .chat-input-pill-container .icon-btn.bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.15) !important; }
-
-/* Chat Track List - Light Theme */
-.theme-light .chat-track-list { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.06); }
-.theme-light .chat-track-item:hover { background: rgba(0, 120, 255, 0.1); box-shadow: 0 0 12px rgba(0, 120, 255, 0.2); }
-.theme-light .chat-track-item.active { background: rgba(0, 170, 48, 0.1); }
-.theme-light .chat-track-icon { color: #00aa30; }
-.theme-light .chat-track-title { color: #111111; }
-.theme-light .chat-track-artist { color: #888888; }
 
 /* ── Theme Toggle Switch ── */
 .theme-toggle {
@@ -1868,16 +1871,23 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 }
 .login-card {
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
-  padding: 36px 28px;
+  padding: 32px 28px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.login-section-label {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: left;
+  width: 100%;
 }
 .login-input {
   width: 100%;
@@ -1886,7 +1896,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   color: #e8e8ec;
-  font-size: 14px;
+  font-size: 13px;
   outline: none;
   transition: border-color 0.2s;
 }
@@ -1907,17 +1917,6 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   transition: all 0.2s;
   border: none;
 }
-.login-btn.primary {
-  background: #00f0ff;
-  color: #06060e;
-}
-.login-btn.primary:hover:not(:disabled) {
-  box-shadow: 0 0 16px rgba(0, 240, 255, 0.4);
-}
-.login-btn.primary:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
 .login-btn.secondary {
   background: rgba(255, 255, 255, 0.05);
   color: #5a5a6e;
@@ -1928,41 +1927,262 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   color: #e8e8ec;
 }
 
-.qr-container {
+/* ── Login Go Button ── */
+.login-btn-go {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: #00f0ff;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
   display: flex;
-  flex-direction: column;
   align-items: center;
-}
-
-.qr-image {
-  width: 200px;
-  height: 200px;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-}
-
-.qr-loading {
-  display: flex;
   justify-content: center;
-  padding: 40px;
+  flex-shrink: 0;
+}
+.login-btn-go:hover:not(:disabled) {
+  background: rgba(0, 240, 255, 0.25);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}
+.login-btn-go:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-.login-divider {
-  width: 100%;
+/* ── System Override Button ── */
+.login-btn-system-override {
+  position: relative;
+  padding: 8px 20px;
+  border-radius: 8px;
+  background: rgba(255, 40, 40, 0.06);
+  border: 1px solid rgba(255, 40, 40, 0.2);
+  color: rgba(255, 60, 60, 0.7);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin: 16px 0;
+}
+.login-btn-system-override:hover {
+  background: rgba(255, 40, 40, 0.12);
+  border-color: rgba(255, 60, 60, 0.4);
+  color: rgba(255, 80, 80, 0.9);
+  box-shadow: 0 0 20px rgba(255, 40, 40, 0.15);
+}
+.override-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 60, 60, 0.8);
+  animation: override-pulse 2s ease-in-out infinite;
+}
+@keyframes override-pulse {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 4px rgba(255, 60, 60, 0.3); }
+  50% { opacity: 1; box-shadow: 0 0 10px rgba(255, 60, 60, 0.6); }
 }
 
-.login-divider::before,
-.login-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.06);
+/* ── Token Success ── */
+.login-token-success {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  animation: token-glow 0.5s ease-out;
+}
+@keyframes token-glow {
+  0% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+  50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
+  100% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+/* ── Geek Guide ── */
+.login-geek-guide {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  text-align: left;
+}
+
+/* ── Login Hint ── */
+.login-hint {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: left;
+  width: 100%;
+  line-height: 1.8;
+}
+
+/* ── Header Login Pill ── */
+.login-pill {
+  padding: 6px 14px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.3s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+}
+.login-pill:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+}
+.login-pill--basic {
+  border-color: rgba(0, 240, 255, 0.2);
+}
+.login-pill--full {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+.login-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.login-status-dot--basic {
+  background: #00f0ff;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+}
+.login-status-dot--full {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+  animation: dot-blink 3s ease-in-out infinite;
+}
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 @media (display-mode: standalone) { .dashboard { padding-top: 32px; } }
+
+/* ── Memory Panel ── */
+.memory-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 280px;
+  height: 100%;
+  background: rgba(6, 6, 14, 0.95);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.memory-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 40px 0;
+}
+
+.memory-item {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memory-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory-category {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #00f0ff;
+  background: rgba(0, 240, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.memory-confidence {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: #5a5a6e;
+}
+
+.memory-key {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e8e8ec;
+}
+
+.memory-value {
+  font-size: 10px;
+  color: #71717a;
+  line-height: 1.4;
+}
+
+/* ── Slide Right Transition ── */
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+/* ── Memory Panel Light Theme ── */
+.theme-light .memory-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border-left-color: rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .memory-item {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .memory-key { color: #111111; }
+.theme-light .memory-value { color: #666666; }
+.theme-light .memory-category { color: #0088cc; background: rgba(0, 136, 204, 0.1); }
 </style>

@@ -90,6 +90,38 @@ function initTables() {
 
     CREATE INDEX IF NOT EXISTS idx_cache_expires_at
       ON cache(expires_at);
+
+    -- ═══ 聊天记忆系统 ═══
+
+    -- 聊天消息持久化
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      role       TEXT NOT NULL, -- 'user' | 'assistant' | 'system'
+      content    TEXT NOT NULL,
+      tracks     TEXT,          -- JSON: 推荐的歌曲列表
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at
+      ON chat_messages(created_at DESC);
+
+    -- 用户记忆/偏好
+    CREATE TABLE IF NOT EXISTS user_memory (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      category   TEXT NOT NULL, -- 'preference' | 'fact' | 'habit' | 'mood'
+      key        TEXT NOT NULL,
+      value      TEXT NOT NULL,
+      confidence REAL DEFAULT 0.5, -- 0-1 置信度
+      source     TEXT,          -- 'explicit' | 'inferred' | 'feedback'
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_memory_category
+      ON user_memory(category);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_memory_key
+      ON user_memory(category, key);
   `);
 }
 
@@ -228,6 +260,67 @@ function cacheCleanup() {
   getDb().prepare('DELETE FROM cache WHERE expires_at < datetime("now")').run();
 }
 
+// ══════════════════════════════════════════════
+// 聊天记忆系统
+// ══════════════════════════════════════════════
+
+function saveChatMessage(role, content, tracks = null) {
+  getDb().prepare(
+    'INSERT INTO chat_messages (role, content, tracks) VALUES (?, ?, ?)'
+  ).run(role, content, tracks ? JSON.stringify(tracks) : null);
+}
+
+function getChatHistory(limit = 50) {
+  const rows = getDb().prepare(
+    'SELECT role, content, tracks, created_at FROM chat_messages ORDER BY created_at DESC LIMIT ?'
+  ).all(limit);
+  return rows.reverse().map(r => ({
+    ...r,
+    tracks: r.tracks ? JSON.parse(r.tracks) : null,
+  }));
+}
+
+function clearChatHistory() {
+  getDb().prepare('DELETE FROM chat_messages').run();
+}
+
+// ── 用户记忆/偏好 ──
+
+function saveMemory(category, key, value, confidence = 0.5, source = 'inferred') {
+  getDb().prepare(`
+    INSERT INTO user_memory (category, key, value, confidence, source, updated_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(category, key) DO UPDATE SET
+      value = excluded.value,
+      confidence = MAX(confidence, excluded.confidence),
+      source = excluded.source,
+      updated_at = datetime('now')
+  `).run(category, key, value, confidence, source);
+}
+
+function getMemories(category = null) {
+  if (category) {
+    return getDb().prepare(
+      'SELECT * FROM user_memory WHERE category = ? ORDER BY confidence DESC, updated_at DESC'
+    ).all(category);
+  }
+  return getDb().prepare(
+    'SELECT * FROM user_memory ORDER BY category, confidence DESC'
+  ).all();
+}
+
+function deleteMemory(id) {
+  getDb().prepare('DELETE FROM user_memory WHERE id = ?').run(id);
+}
+
+function getMemoryContext() {
+  const memories = getDb().prepare(
+    "SELECT category, key, value FROM user_memory WHERE confidence >= 0.5 ORDER BY confidence DESC LIMIT 20"
+  ).all();
+  if (memories.length === 0) return '';
+  return memories.map(m => `[${m.category}] ${m.key}: ${m.value}`).join('\n');
+}
+
 module.exports = {
   getDb,
   logPlay,
@@ -242,4 +335,11 @@ module.exports = {
   cacheSet,
   cacheDelete,
   cacheCleanup,
+  saveChatMessage,
+  getChatHistory,
+  clearChatHistory,
+  saveMemory,
+  getMemories,
+  deleteMemory,
+  getMemoryContext,
 };

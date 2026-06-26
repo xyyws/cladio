@@ -12,7 +12,8 @@ const commentsController = require('../controllers/commentsController');
 const lyricsController = require('../controllers/lyricsController');
 const artistController = require('../controllers/artistController');
 const likeController = require('../controllers/likeController');
-const qrLoginController = require('../controllers/qrLoginController');
+const authController = require('../controllers/authController');
+const memoryController = require('../controllers/memoryController');
 
 const router = Router();
 
@@ -64,10 +65,33 @@ router.post('/like', likeController.likeSong);
 // 15. GET /api/tts/:id — 轮询 TTS 生成状态
 router.get('/tts/:id', chatController.getTtsStatus);
 
-// 16. POST /api/qr/create — 生成登录二维码
-router.post('/qr/create', qrLoginController.createQR);
+// 16. POST /api/auth/uid — UID 基础模式登录
+router.post('/auth/uid', authController.loginByUid);
 
-// 17. GET /api/qr/check/:key — 检查扫码状态
-router.get('/qr/check/:key', qrLoginController.checkQR);
+// 17. POST /api/auth/token — Token 深度模式登录
+router.post('/auth/token', authController.loginByToken);
+
+// ═══ 聊天记忆系统 ═══
+
+// 18. GET  /api/memory/chat — 获取聊天历史
+router.get('/memory/chat', memoryController.getChat);
+
+// 19. POST /api/memory/chat — 保存聊天消息
+router.post('/memory/chat', memoryController.postChat);
+
+// 20. DEL  /api/memory/chat — 清空聊天历史
+router.delete('/memory/chat', memoryController.deleteChat);
+
+// 21. GET  /api/memory/prefs — 获取用户记忆/偏好
+router.get('/memory/prefs', memoryController.getPrefs);
+
+// 22. POST /api/memory/prefs — 保存用户记忆
+router.post('/memory/prefs', memoryController.postPrefs);
+
+// 23. DEL  /api/memory/prefs/:id — 删除用户记忆
+router.delete('/memory/prefs/:id', memoryController.deletePrefs);
+
+// 24. GET  /api/memory/context — 获取记忆上下文
+router.get('/memory/context', memoryController.getContext);
 
 module.exports = router;

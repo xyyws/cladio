@@ -1,20 +1,20 @@
 /**
  * POST /api/chat — AI Agent 对话引擎
  *
- * 使用大模型原生 Function Calling 能力：
+ * 使用 OpenAI SDK + 大模型原生 Function Calling 能力：
  *   1. 用户消息 + 工具定义 → 发给大模型
  *   2. 大模型决定调用哪些工具
  *   3. 执行工具，将结果返回给大模型
- *   4. 大模型生成最终回复（流式输出）
+ *   4. 大模型生成最终回复
  *   5. 返回给前端：回复文本 + 工具调用日志 + 推荐歌曲
  *
  * TTS 异步化：
  *   - 聊天立即返回文字 + 歌曲
  *   - TTS 后台生成，前端通过 /api/tts/:id 轮询获取
  *
- * 最多循环 5 轮（防止无限调用）
+ * 最多循环 4 轮（防止无限调用）
  */
-const axios = require('axios');
+const OpenAI = require('openai');
 const config = require('../config');
 const { getEnvironmentSnapshot } = require('../services/context');
 
@@ -30,6 +30,7 @@ const { getPlayableTracks } = require('../services/audioService');
 const { generateSpeech } = require('../services/tts');
 const { TOOL_DEFINITIONS, executeTool } = require('../services/tools');
 const netease = require('../services/netease');
+const { saveChatMessage, getMemoryContext } = require('../services/stateDB');
 
 const MAX_AGENT_LOOPS = 4;
 
@@ -49,7 +50,8 @@ const SYSTEM_PROMPT = `你是 Claudio，一位有品味的 AI 电台主播。
 4. 当用户提供歌单ID时，用 load_playlist 加载歌单，然后用 set_playlist 提交歌曲
 5. 回复要温暖自然，像朋友聊天，不要太长（1-3 句话）
 6. 你必须在第 2 次回复时就调用 set_playlist，不要拖延
-6. 每次回复都必须包含 set_playlist 工具调用，这是强制要求`;
+7. 每次回复都必须包含 set_playlist 工具调用，这是强制要求
+8. 不要输出任何 Markdown 格式，直接返回工具调用结果`;
 
 // ── set_playlist 是一个"虚拟工具"，用于让大模型提交最终结果 ──
 const SET_PLAYLIST_TOOL = {
@@ -79,16 +81,14 @@ const SET_PLAYLIST_TOOL = {
   },
 };
 
-// ── Axios 客户端 ──
+// ── OpenAI 客户端 ──
 
 function getClient() {
-  return axios.create({
+  return new OpenAI({
+    apiKey: config.llm.apiKey,
     baseURL: config.llm.baseUrl,
     timeout: 30000,
-    headers: {
-      'Authorization': `Bearer ${config.llm.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    maxRetries: 0,
   });
 }
 
@@ -130,8 +130,12 @@ async function runAgent(userMessage, history) {
     searchHint = `\n\n用户搜索结果（已找到，直接使用这些歌曲 ID）:\n${songList}`;
   }
 
+  // 注入用户记忆上下文
+  const memoryContext = getMemoryContext();
+  const memoryHint = memoryContext ? `\n\n用户记忆（你之前了解到的用户偏好）:\n${memoryContext}` : '';
+
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT + `\n\n环境信息: ${contextInfo}${searchHint}` },
+    { role: 'system', content: SYSTEM_PROMPT + `\n\n环境信息: ${contextInfo}${searchHint}${memoryHint}` },
   ];
 
   // 加入对话历史
@@ -147,7 +151,7 @@ async function runAgent(userMessage, history) {
   for (let loop = 0; loop < MAX_AGENT_LOOPS; loop++) {
     const client = getClient();
 
-    const response = await client.post('/chat/completions', {
+    const response = await client.chat.completions.create({
       model: config.llm.model,
       max_tokens: 1024,
       temperature: 0.7,
@@ -156,16 +160,10 @@ async function runAgent(userMessage, history) {
       tool_choice: 'auto',
     });
 
-    const choice = response.data?.choices?.[0];
-    const assistantMessage = choice?.message;
+    const assistantMessage = response.choices[0]?.message;
 
     if (!assistantMessage) {
       throw new Error('大模型返回空响应');
-    }
-
-    // mimo 兼容：如果 content 为空但 reasoning_content 有内容，用 reasoning_content
-    if (!assistantMessage.content && assistantMessage.reasoning_content) {
-      assistantMessage.content = assistantMessage.reasoning_content;
     }
 
     // 将助手消息加入对话
@@ -277,6 +275,9 @@ async function postChat(req, res, next) {
       });
     }
 
+    // 保存用户消息到记忆
+    saveChatMessage('user', message);
+
     // 运行 Agent
     const result = await runAgent(message, history);
 
@@ -285,6 +286,9 @@ async function postChat(req, res, next) {
     if (result.songs.length > 0) {
       tracks = await getPlayableTracks(result.songs.slice(0, 5)).catch(() => []);
     }
+
+    // 保存 AI 回复到记忆
+    saveChatMessage('assistant', result.reply, tracks.length > 0 ? tracks : null);
 
     // 立即返回文字 + 歌曲，TTS 后台生成
     const ttsId = `tts_${Date.now()}`;

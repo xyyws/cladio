@@ -344,6 +344,26 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * 暂停音乐（保留音频元素）
+   */
+  pauseMusic() {
+    if (this._musicEl && !this._musicEl.paused) {
+      this._musicEl.pause();
+      this.isPlaying = false;
+    }
+  }
+
+  /**
+   * 恢复音乐播放
+   */
+  resumeMusic() {
+    if (this._musicEl && this._musicEl.paused) {
+      this._musicEl.play();
+      this.isPlaying = true;
+    }
+  }
+
   _cleanupMusic() {
     this._musicEl = null;
     this._stopProgressTracking();
@@ -399,10 +419,11 @@ export class AudioEngine {
     this.progress = { currentTime: 0, duration: 0, percent: 0 };
 
     this._progressTimer = setInterval(() => {
-      if (!audio || audio.paused || audio.ended) {
+      if (!audio || audio.ended) {
         this._stopProgressTracking();
         return;
       }
+      // 暂停时仍然更新进度（只是不推进 currentTime）
       const current = audio.currentTime || 0;
       const duration = audio.duration || 0;
       this.progress = {
@@ -443,6 +464,20 @@ export class AudioEngine {
   resume() {
     if (this._musicEl) this._musicEl.play();
     if (this._djEl) this._djEl.play();
+  }
+
+  pauseMusic() {
+    if (this._musicEl && !this._musicEl.paused) {
+      this._musicEl.pause();
+      this.isPlaying = false;
+    }
+  }
+
+  resumeMusic() {
+    if (this._musicEl && this._musicEl.paused) {
+      this._musicEl.play();
+      this.isPlaying = true;
+    }
   }
 
   prefetchAudio(url) {

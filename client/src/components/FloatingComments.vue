@@ -37,7 +37,8 @@ function spawn() {
 
   do {
     top = random(8, 75)
-    left = random(5, 60)
+    // 左右两边显示，避免遮挡中间内容
+    left = Math.random() > 0.5 ? random(55, 95) : random(2, 42)
     attempts++
   } while (attempts < maxAttempts && isOverlapping(top, left))
 
@@ -138,7 +139,7 @@ onUnmounted(() => {
 
 .ghost-comment {
   position: absolute;
-  max-width: 320px;
+  max-width: 280px;
   padding: 14px 16px;
   background: rgba(255, 255, 255, 0.015);
   backdrop-filter: blur(8px);

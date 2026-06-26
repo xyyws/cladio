@@ -184,10 +184,38 @@ function loadFromDB() {
   }
 }
 
+/**
+ * 加载指定用户的红心歌单为弹药库
+ * @param {string} playlistId - 歌单 ID
+ * @returns {Promise<Array>}
+ */
+async function loadUserArsenal(playlistId) {
+  console.log(`[Playlist] 加载用户歌单 ${playlistId}...`);
+  const tracks = await getPlaylistTracks(playlistId);
+
+  if (!tracks || tracks.length === 0) {
+    console.warn(`[Playlist] 歌单 ${playlistId} 为空`);
+    return [];
+  }
+
+  // 清空旧缓存，替换为用户歌单
+  _allTracksCache = tracks;
+  _lastFetch = Date.now();
+
+  // 同步写入 SQLite
+  syncToDB(tracks).catch(err => {
+    console.warn('[Playlist] 同步到数据库失败:', err.message);
+  });
+
+  console.log(`[Playlist] 用户歌单加载完成: ${tracks.length} 首歌`);
+  return tracks;
+}
+
 module.exports = {
   getUserPlaylists,
   getPlaylistTracks,
   loadArsenal,
+  loadUserArsenal,
   pickRandom,
   searchArsenal,
   USER_UID,
