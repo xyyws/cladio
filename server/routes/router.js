@@ -13,6 +13,7 @@ const lyricsController = require('../controllers/lyricsController');
 const artistController = require('../controllers/artistController');
 const likeController = require('../controllers/likeController');
 const authController = require('../controllers/authController');
+const qrLoginController = require('../controllers/qrLoginController');
 const memoryController = require('../controllers/memoryController');
 
 const router = Router();
@@ -73,6 +74,18 @@ router.post('/auth/uid', authController.loginByUid);
 
 // 17. POST /api/auth/token — Token 深度模式登录
 router.post('/auth/token', authController.loginByToken);
+
+// 18. POST /api/qr/create — 生成二维码
+router.post('/qr/create', qrLoginController.createQR);
+
+// 19. GET /api/qr/check/:key — 轮询扫码状态
+router.get('/qr/check/:key', qrLoginController.checkQR);
+
+// 20. GET /api/login/status — 查询登录状态
+router.get('/login/status', qrLoginController.getLoginStatus);
+
+// 21. POST /api/logout — 登出
+router.post('/logout', qrLoginController.logout);
 
 // ═══ 聊天记忆系统 ═══
 

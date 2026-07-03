@@ -77,8 +77,8 @@ async function loginByToken(req, res, next) {
       });
     }
 
-    // 注入 Cookie 到全局
-    netease.setCookie(cleanToken);
+    // 保存 Cookie 到 .cookie 文件（对齐 Mineradio 方案）
+    netease.saveCookie(cleanToken);
 
     // 加载该用户的红心歌单
     const uid = String(account.id);

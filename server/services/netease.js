@@ -11,19 +11,87 @@ const config = require('../config');
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
-// 读取网易云 Cookie（SVIP 登录态）
-const COOKIE_PATH = path.join(__dirname, '..', '..', 'NeteaseCloudMusicApiBackup-main', 'cookie.txt');
+// Cookie 文件路径（优先级：环境变量 > .cookie 动态 > cookie.txt 静态）
+const DYNAMIC_COOKIE_PATH = path.join(__dirname, '..', '.cookie');
+const STATIC_COOKIE_PATH = path.join(__dirname, '..', '..', 'NeteaseCloudMusicApiBackup-main', 'cookie.txt');
 let NETEASE_COOKIE = process.env.NETEASE_COOKIE || '';
+let _cookieLastRead = 0;
+const COOKIE_RELOAD_MS = 30000;
 
-if (!NETEASE_COOKIE) {
+/**
+ * 加载 Cookie — 优先级：环境变量 > .cookie（QR/Token 登录） > cookie.txt（SVIP 静态）
+ */
+function loadCookie() {
+  if (process.env.NETEASE_COOKIE) return; // 环境变量最高优先
+
+  // 1. 读取 QR/Token 登录保存的 .cookie
   try {
-    NETEASE_COOKIE = fs.readFileSync(COOKIE_PATH, 'utf-8').trim();
-    console.log('[NetEase] Cookie 已从文件加载');
-  } catch (_) {
-    console.warn('[NetEase] 未找到 cookie.txt，将以游客身份访问');
+    const dynamic = fs.readFileSync(DYNAMIC_COOKIE_PATH, 'utf-8').trim();
+    if (dynamic) {
+      NETEASE_COOKIE = dynamic;
+      _cookieLastRead = Date.now();
+      return;
+    }
+  } catch (_) {}
+
+  // 2. 降级读取静态 cookie.txt
+  try {
+    const static_ = fs.readFileSync(STATIC_COOKIE_PATH, 'utf-8').trim();
+    if (static_) {
+      NETEASE_COOKIE = static_;
+      _cookieLastRead = Date.now();
+      console.log('[NetEase] Cookie 已从 cookie.txt 加载');
+      return;
+    }
+  } catch (_) {}
+
+  console.warn('[NetEase] 未找到 Cookie，将以游客身份访问');
+}
+
+/**
+ * 保存 Cookie（QR/Token 登录成功后调用）
+ * 同时更新内存和 .cookie 文件
+ */
+function saveCookie(cookie) {
+  if (!cookie) return;
+  NETEASE_COOKIE = cookie;
+  _cookieLastRead = Date.now();
+  try {
+    fs.writeFileSync(DYNAMIC_COOKIE_PATH, cookie, 'utf-8');
+    console.log('[NetEase] Cookie 已保存到 .cookie');
+  } catch (err) {
+    console.warn('[NetEase] Cookie 保存失败:', err.message);
   }
-} else {
-  console.log('[NetEase] Cookie 已从环境变量加载');
+}
+
+/**
+ * 清除 Cookie（登出时调用）
+ */
+function clearCookie() {
+  NETEASE_COOKIE = '';
+  _cookieLastRead = 0;
+  try { fs.unlinkSync(DYNAMIC_COOKIE_PATH); } catch (_) {}
+  console.log('[NetEase] Cookie 已清除');
+}
+
+// 初始加载
+loadCookie();
+
+function refreshCookie() {
+  if (Date.now() - _cookieLastRead > COOKIE_RELOAD_MS) {
+    loadCookie();
+  }
+}
+
+/**
+ * 获取当前登录状态
+ */
+function getLoginStatus() {
+  return {
+    loggedIn: !!NETEASE_COOKIE,
+    hasCookie: !!NETEASE_COOKIE,
+    source: process.env.NETEASE_COOKIE ? 'env' : (fs.existsSync(DYNAMIC_COOKIE_PATH) ? 'qr_login' : 'static'),
+  };
 }
 
 function sleep(ms) {
@@ -33,6 +101,9 @@ function sleep(ms) {
 async function api(endpoint, params = {}, retryCount = 0) {
   const base = config.netease.apiBase;
 
+  // 每次请求前检查 cookie 是否需要刷新
+  refreshCookie();
+
   // 注入 SVIP Cookie（作为查询参数，但不覆盖已有的 per-request cookie）
   if (NETEASE_COOKIE && !params.cookie) {
     params.cookie = NETEASE_COOKIE;
@@ -41,11 +112,15 @@ async function api(endpoint, params = {}, retryCount = 0) {
   const qs = new URLSearchParams(params).toString();
   const url = `${base}${endpoint}${qs ? '?' + qs : ''}`;
 
+  // 构建 Cookie header（NETEASE_COOKIE 已包含 MUSIC_U= 前缀）
+  const cookieHeader = NETEASE_COOKIE || '';
+
   try {
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://music.163.com/',
+        'Cookie': cookieHeader,
       },
       signal: AbortSignal.timeout(15000),
     });
@@ -340,6 +415,9 @@ module.exports = {
   getArtistDesc,
   login,
   setCookie,
+  saveCookie,
+  clearCookie,
+  getLoginStatus,
   getDailyRecommendPlaylists,
   getDailyRecommendSongs,
   getSimilarPlaylists,
