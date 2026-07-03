@@ -192,9 +192,10 @@ const qrStatusText = ref('')
 const qrPollTimer = ref(null)
 const loginChecked = ref(false) // 页面加载时登录状态是否已检查
 
-// 自动开始扫码：打开弹窗时自动获取二维码（仅在登录检查完成后）
-watch(showLoginModal, (val) => {
+// 自动开始扫码：打开弹窗时自动获取二维码（必须等 loginChecked 完成）
+watch(() => showLoginModal.value, (val) => {
   if (val && loginMode.value === 'qr' && !user.loggedIn && loginChecked.value) {
+    console.log('[QR] 触发 startQrLogin')
     nextTick(() => startQrLogin())
   }
 })
@@ -278,26 +279,39 @@ async function startQrLogin() {
   qrKey.value = ''
   loginError.value = ''
 
+  console.log('[QR] startQrLogin, API_BASE:', API_BASE)
+
   try {
     const res = await fetch(`${API_BASE}/api/qr/create`, { method: 'POST' })
+    console.log('[QR] response status:', res.status)
     const data = await res.json()
+    console.log('[QR] response data:', data.key ? 'OK' : 'NO KEY', 'qrimg:', !!data.qrimg)
 
     if (data.error) {
-      loginError.value = data.error
+      loginError.value = typeof data.error === 'string' ? data.error : JSON.stringify(data.error)
       qrStatus.value = 'error'
+      qrStatusText.value = '获取二维码失败'
+      return
+    }
+
+    if (!data.qrimg) {
+      loginError.value = '未获取到二维码图片'
+      qrStatus.value = 'error'
+      qrStatusText.value = '获取二维码失败'
       return
     }
 
     qrKey.value = data.key
-    qrImg.value = data.qrimg // base64 data:image/png
+    qrImg.value = data.qrimg
     qrStatus.value = 'waiting'
     qrStatusText.value = '请使用网易云音乐 APP 扫码'
 
-    // 开始轮询
     startQrPolling()
   } catch (err) {
-    loginError.value = '获取二维码失败'
+    console.error('[QR] fetch error:', err)
+    loginError.value = `网络错误: ${err.message}`
     qrStatus.value = 'error'
+    qrStatusText.value = '网络错误，点击重试'
   }
 }
 
@@ -853,8 +867,19 @@ async function checkServerLogin() {
     if (data.loggedIn && data.uid) {
       loginWithToken(data.uid, data.nickname || '网易云用户', data.avatarUrl || '')
       console.log('[Login] 从服务器恢复登录态:', data.nickname)
+    } else {
+      console.log('[Login] 未登录')
+      // loginChecked 先设为 true，再弹登录框（避免 watcher 竞态）
+      loginChecked.value = true
+      showLoginModal.value = true
+      return
     }
-  } catch (_) {}
+  } catch (e) {
+    console.warn('[Login] 状态检查失败:', e.message)
+    loginChecked.value = true
+    showLoginModal.value = true
+    return
+  }
   loginChecked.value = true
 }
 onUnmounted(() => {
@@ -922,6 +947,13 @@ onUnmounted(() => {
                 <span class="font-mono text-[10px] text-text-dim mt-2">正在获取二维码...</span>
               </div>
 
+              <!-- 错误状态 -->
+              <div v-else-if="qrStatus === 'error'" class="qr-loading">
+                <svg class="w-8 h-8 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span class="font-mono text-[10px] text-rose-400 mt-2">{{ loginError || qrStatusText || '获取二维码失败' }}</span>
+                <button class="login-btn-go mt-3 px-6 py-2 text-xs" @click="startQrLogin">重试</button>
+              </div>
+
               <!-- 二维码展示 -->
               <div v-else class="qr-showcase">
                 <!-- 二维码外框 -->
@@ -975,12 +1007,12 @@ onUnmounted(() => {
               <span class="login-divider-text">其他方式</span>
             </div>
             <div class="login-alt-row">
-              <button class="login-alt-btn" @click="loginMode = 'uid'">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+              <button class="login-alt-btn" @click="loginMode = 'uid'" aria-label="使用 UID 登录">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                 <span>UID</span>
               </button>
-              <button class="login-alt-btn" @click="showTokenPanel = true; loginError = ''">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+              <button class="login-alt-btn" @click="showTokenPanel = true; loginError = ''" aria-label="使用 Token 登录">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
                 <span>Token</span>
               </button>
             </div>
@@ -1003,6 +1035,7 @@ onUnmounted(() => {
                 class="login-btn-go"
                 @click="handleUidLogin"
                 :disabled="loginLoading"
+                aria-label="UID 登录"
               >→</button>
             </div>
             <p v-if="loginError" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
@@ -1034,6 +1067,7 @@ onUnmounted(() => {
                 class="login-btn-go"
                 @click="handleTokenLogin"
                 :disabled="loginLoading"
+                aria-label="Token 登录"
               >→</button>
             </div>
             <p v-if="loginError" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
@@ -2020,6 +2054,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 /* ── Theme Toggle Switch ── */
 .theme-toggle {
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -2174,7 +2209,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .qr-scanline { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #00f0ff, transparent); animation: scanline 2s ease-in-out infinite; z-index: 2; }
 @keyframes scanline { 0%, 100% { top: 0; } 50% { top: calc(100% - 2px); } }
 
-.qr-mask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); cursor: pointer; gap: 4px; }
+.qr-mask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); cursor: pointer; gap: 4px; }
 .qr-mask-success { background: rgba(0,0,0,0.4); }
 
 .qr-status-bar { display: flex; align-items: center; gap: 6px; margin-top: 12px; }

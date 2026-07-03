@@ -8,6 +8,14 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
+// ── Security Headers ──
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.removeHeader('X-Frame-Options');
+  next();
+});
+
 // ── Middleware ──
 app.use(cors());
 app.use(express.json());
