@@ -20,6 +20,9 @@ const router = Router();
 // 1. POST /api/chat     — 用户与主播对话
 router.post('/chat', chatController.postChat);
 
+// 1b. POST /api/chat/stream — SSE 流式聊天（Agent 活动实时推送）
+router.post('/chat/stream', chatController.postChatStream);
+
 // 2. GET  /api/context  — 获取当前 6 维上下文原始数据
 router.get('/context', contextController.getContext);
 

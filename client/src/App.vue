@@ -13,7 +13,7 @@ import SongDetailCard from './components/SongDetailCard.vue'
 
 // ── Shared Radio & Clock & User ──
 const radio = useRadio()
-const { state, engine, start, startFromArsenal, stop, toggle, prev, next, setVolume, playChatSongs, playTrack } = radio
+const { state, engine, start, startFromArsenal, stop, toggle, prev, next, setVolume, playChatSongs, playTrack, playTrackByIndex } = radio
 provide('radio', radio)
 
 const userCtx = useUser()
@@ -312,6 +312,12 @@ async function loadUserMemories() {
   }
 }
 
+// 清空聊天记录
+function clearChat() {
+  chatMessages.length = 0
+  fetch(`${API_BASE}/api/memory/chat`, { method: 'DELETE' }).catch(() => {})
+}
+
 // 页面加载时获取
 loadChatHistory()
 loadUserMemories()
@@ -490,68 +496,138 @@ async function sendChat() {
   scrollToBottom()
 
   try {
-    // 只把 user/assistant 消息发给 LLM，过滤 system 消息
     const history = chatMessages
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .slice(-10)
 
-    const res = await fetch(`${API_BASE}/api/chat`, {
+    // ── SSE 流式请求 ──
+    const res = await fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg, history }),
     })
-    const json = await res.json()
 
-    // AI 回复（先添加消息，TTS URL 后面补上）
-    const msgIndex = chatMessages.length
-    chatMessages.push({ role: 'assistant', content: json.reply || '...', tracks: json.tracks && json.tracks.length > 0 ? json.tracks : null, djUrl: null })
-    scrollToBottom()
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`)
+    }
 
-    // 播放 TTS 语音（异步轮询）
-    let djUrl = null
-    if (json.djAudio) {
-      // 直接有 djAudio（兼容旧逻辑）
-      const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-      djUrl = json.djAudio.startsWith('http') ? json.djAudio : `${API_BASE}${json.djAudio}`
-    } else if (json.ttsId) {
-      // 异步 TTS：轮询等待生成完成
-      const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/+$/, '')
-      const maxWait = 30000
-      const start = Date.now()
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
 
-      while (Date.now() - start < maxWait) {
-        await new Promise(r => setTimeout(r, 1000))
-        try {
-          const ttsRes = await fetch(`${API_BASE}/api/tts/${json.ttsId}`)
-          const ttsData = await ttsRes.json()
-          if (ttsData.status === 'ready' && ttsData.url) {
-            djUrl = ttsData.url.startsWith('http') ? ttsData.url : `${API_BASE}${ttsData.url}`
-            break
+    let replyText = ''
+    let replyMsgIndex = -1
+    let finalSongs = []
+    let finalTracks = []
+    let ttsId = null
+
+    // 解析 SSE 流
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      let eventType = ''
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6)
+          let data = {}
+          try { data = JSON.parse(dataStr) } catch (_) {}
+
+          // ── 处理各类事件 ──
+          switch (eventType) {
+            case 'routing':
+              agentLog.push({ type: 'routing', route: data.route, params: data.params, ts: Date.now() })
+              break
+
+            case 'agent_start':
+              agentLog.push({ type: 'start', agent: data.agent, task: data.task, ts: Date.now() })
+              break
+
+            case 'agent_done':
+              agentLog.push({ type: 'done', agent: data.agent, task: data.task, duration: data.duration, ts: Date.now() })
+              break
+
+            case 'agent_error':
+              agentLog.push({ type: 'error', agent: data.agent, task: data.task, error: data.error, ts: Date.now() })
+              break
+
+            case 'thinking':
+              agentLog.push({ type: 'thinking', message: data.message, ts: Date.now() })
+              break
+
+            case 'reply_chunk':
+              // 逐字流式渲染
+              replyText += data.text || ''
+              if (replyMsgIndex < 0) {
+                replyMsgIndex = chatMessages.length
+                chatMessages.push({ role: 'assistant', content: '', tracks: null, djUrl: null })
+              }
+              chatMessages[replyMsgIndex].content = replyText
+              scrollToBottom()
+              break
+
+            case 'reply':
+              // 完整回复（如果没有 chunk 流）
+              if (!replyText) {
+                replyText = data.text || '...'
+                if (replyMsgIndex < 0) {
+                  replyMsgIndex = chatMessages.length
+                  chatMessages.push({ role: 'assistant', content: replyText, tracks: null, djUrl: null })
+                } else {
+                  chatMessages[replyMsgIndex].content = replyText
+                }
+              }
+              break
+
+            case 'tracks':
+              finalSongs = data.songs || []
+              finalTracks = data.tracks || []
+              break
+
+            case 'tts_ready':
+              if (data.url && replyMsgIndex >= 0) {
+                const ttsUrl = data.url.startsWith('http') ? data.url : `${API_BASE}${data.url}`
+                chatMessages[replyMsgIndex].djUrl = ttsUrl
+                try {
+                  state.status = 'speaking'
+                  engine.ensureContext()
+                  await engine._playDj(ttsUrl)
+                } catch (_) {}
+              }
+              break
+
+            case 'done':
+              ttsId = data.ttsId || null
+              break
+
+            case 'error':
+              agentLog.push({ type: 'error', message: data.message, ts: Date.now() })
+              break
           }
-          if (ttsData.status === 'failed') break
-        } catch (_) {}
+        }
       }
     }
 
-    // 存储 TTS URL 到消息中并播放
-    if (djUrl) {
-      chatMessages[msgIndex].djUrl = djUrl
-      try {
-        state.status = 'speaking'
-        engine.ensureContext()
-        await engine._playDj(djUrl)
-      } catch (err) {
-        console.warn('[Chat] TTS 播放失败:', err.message)
-      }
+    // 确保回复消息存在
+    if (replyMsgIndex < 0) {
+      chatMessages.push({ role: 'assistant', content: replyText || '...', tracks: null, djUrl: null })
     }
 
-    // 歌曲推荐：TTS 播完后自动播放
-    if (json.tracks?.length > 0) {
-      const names = json.tracks.slice(0, 3).map(t => t.title || t.songId).join(', ')
-      const suffix = json.tracks.length > 3 ? ` +${json.tracks.length - 3}` : ''
+    // 歌曲推荐：自动播放
+    if (finalTracks.length > 0) {
+      const names = finalTracks.slice(0, 3).map(t => t.title || t.songId).join(', ')
+      const suffix = finalTracks.length > 3 ? ` +${finalTracks.length - 3}` : ''
       pushSystemMsg(`🎵 已加入队列: ${names}${suffix}`)
-      playChatSongs(json)
+      playChatSongs({ tracks: finalTracks, songs: finalSongs })
     }
+
+    scrollToBottom()
   } catch (err) {
     chatMessages.push({ role: 'assistant', content: `出错了: ${err.message}` })
     scrollToBottom()
@@ -984,7 +1060,7 @@ onUnmounted(() => {
             :key="track.songId || index"
             class="flex justify-between items-center px-2 py-2 rounded-[4px] cursor-pointer transition-colors"
             :class="isActive && index === state.currentIndex ? 'bg-neon-green/10 text-neon-green' : 'hover:bg-white/5 text-text-dim'"
-            @click="radio.playTrack(track)"
+            @click="playTrackByIndex(index)"
           >
             <div class="flex items-center gap-3 flex-1 overflow-hidden">
               <span class="text-[9px] w-3 flex-shrink-0" v-if="!(isActive && index === state.currentIndex)">{{ index + 1 }}</span>
@@ -1011,6 +1087,31 @@ onUnmounted(() => {
         <div class="chat-messages flex-1 overflow-y-auto pr-2 pb-4" ref="chatMessagesRef">
           <div class="text-center font-mono text-[9px] text-text-dim mb-4 tracking-widest opacity-60">
             Connected to Claudio server
+          </div>
+
+          <!-- Agent 活动面板 -->
+          <div v-if="agentLog.length > 0" class="agent-activity mb-3">
+            <div v-for="(log, i) in agentLog" :key="i"
+              class="flex items-center gap-2 py-1 px-2 rounded text-[9px] font-mono"
+              :class="{
+                'text-blue-400': log.type === 'start' || log.type === 'thinking',
+                'text-green-400': log.type === 'done',
+                'text-red-400': log.type === 'error',
+                'text-yellow-400': log.type === 'routing',
+              }"
+            >
+              <span v-if="log.type === 'routing'" class="opacity-60">🔀</span>
+              <span v-else-if="log.type === 'start'" class="animate-spin text-[8px]">⚙</span>
+              <span v-else-if="log.type === 'done'" class="opacity-60">✓</span>
+              <span v-else-if="log.type === 'thinking'" class="animate-pulse">💭</span>
+              <span v-else-if="log.type === 'error'" class="opacity-60">✗</span>
+
+              <span v-if="log.type === 'routing'">路由: {{ log.route }}</span>
+              <span v-else-if="log.type === 'start'">{{ log.agent }} → {{ log.task }}</span>
+              <span v-else-if="log.type === 'done'">{{ log.agent }} 完成 ({{ log.duration }}ms)</span>
+              <span v-else-if="log.type === 'thinking'">{{ log.message }}</span>
+              <span v-else-if="log.type === 'error'">{{ log.agent || '' }} {{ log.error || log.message }}</span>
+            </div>
           </div>
           <template v-for="(msg, i) in chatMessages" :key="i">
             <div :class="['chat-bubble', msg.role]">
@@ -1100,7 +1201,7 @@ onUnmounted(() => {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7.5L12 22l-3-5.5C7 14.5 5 12 5 9a7 7 0 0 1 7-7z"></path><circle cx="12" cy="9" r="2.5"></circle></svg>
               </button>
               <!-- Clear Chat -->
-              <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="chatMessages.length = 0; fetch(`${API_BASE}/api/memory/chat`, { method: 'DELETE' })" title="Clear chat">
+              <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="clearChat" title="Clear chat">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
               <!-- Send -->
@@ -1607,6 +1708,7 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 
 /* ── Chat Flow (Dark) ── */
 .chat-messages { display: flex; flex-direction: column; gap: 16px; padding: 24px 8px 12px; overflow-y: auto; flex: 1; }
+.agent-activity { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
 .chat-bubble { display: flex; gap: 12px; align-items: flex-start; }
 .chat-bubble.user { flex-direction: row; align-items: flex-start; justify-content: flex-end; }
 .bubble-avatar { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; overflow: hidden; }

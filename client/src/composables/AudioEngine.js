@@ -19,6 +19,9 @@ export class AudioEngine {
     this._musicEl = null;
     this._djEl = null;
 
+    // 追踪所有创建的音频元素（防止泄漏）
+    this._allAudioEls = new Set();
+
     // 状态
     this.isPlaying = false;
     this.isDucking = false;
@@ -80,35 +83,61 @@ export class AudioEngine {
   }
 
   // ══════════════════════════════════════════════
-  // 核心方法：playRadioCycle
+  // 统一播放方法：playAudio
   // ══════════════════════════════════════════════
 
-  async playRadioCycle(djUrl, musicUrl, segue = 'crossfade:2000') {
+  /**
+   * 统一音频播放方法
+   *
+   * @param {string} musicUrl - 歌曲 URL
+   * @param {object} options
+   * @param {string} [options.djUrl] - DJ 音频 URL
+   * @param {'parallel'|'sequential'|'interlude'} [options.mode='sequential'] - 播放模式
+   * @param {number} [options.djOffset=0] - 间奏触发时间点（秒），仅 interlude 模式
+   * @param {string} [options.segue='crossfade:2000'] - 交叉淡入参数
+   * @returns {Promise<{finished: boolean}>}
+   */
+  async playAudio(musicUrl, options = {}) {
+    const {
+      djUrl = null,
+      mode = 'sequential',
+      djOffset = 0,
+      segue = 'crossfade:2000',
+    } = options;
+
     const crossfadeMs = this._parseSegue(segue);
 
-    // Phase 1: DJ 语音（压低音乐音量）
-    if (djUrl) {
-      await this._playDj(djUrl);
+    if (mode === 'parallel' && djUrl) {
+      // ── 并行模式：DJ 和歌曲同时播放 ──
+      return this._playParallel(musicUrl, djUrl, crossfadeMs);
     }
 
-    // Phase 2: 播放音乐
-    if (musicUrl) {
-      await this._playMusic(musicUrl, crossfadeMs);
+    if (mode === 'interlude' && djUrl) {
+      // ── 间奏模式：歌曲播到指定时间点时插入 DJ ──
+      return this._playWithInterlude(musicUrl, djUrl, djOffset, crossfadeMs);
     }
+
+    // ── 串行模式（默认）：先播 DJ，再播歌曲 ──
+    if (djUrl) {
+      await this._playDj(djUrl).catch(() => {}); // DJ 失败不影响后续
+    }
+    return this._playMusic(musicUrl, crossfadeMs);
   }
 
   /**
-   * 模式 1：歌曲和 DJ 并行播放
-   * 歌曲开始的同时播放 DJ 语音（音乐闪避），DJ 结束后音乐恢复
+   * 并行模式：DJ 和歌曲同时播放，歌曲结束才 resolve
    */
-  playWithDjOverlay(musicUrl, djUrl, segue = 'crossfade:2000') {
-    const crossfadeMs = this._parseSegue(segue);
-
+  _playParallel(musicUrl, djUrl, crossfadeMs) {
     return new Promise((resolve, reject) => {
-      // 启动歌曲
       this._stopMusic();
+
+      // 存储 resolve，让 _stopMusic 可以中断 Promise
+      this._musicResolve = resolve;
+      this._musicReject = reject;
+
       const music = new Audio(musicUrl);
       this._musicEl = music;
+      this._allAudioEls.add(music);
       this.isPlaying = true;
       this._startProgressTracking(music);
 
@@ -119,39 +148,92 @@ export class AudioEngine {
         music.volume = NORMAL_LEVEL;
       }
 
-      let djFinished = false;
-      let musicFinished = false;
+      let settled = false;
 
-      const tryResolve = () => {
-        if (djFinished && musicFinished) resolve();
-      };
-
-      music.addEventListener('ended', () => {
+      const onMusicEnd = () => {
+        if (settled) return;
+        settled = true;
         this.isPlaying = false;
         this._cleanupMusic();
-        musicFinished = true;
-        tryResolve();
+        resolve({ finished: true });
+      };
+
+      const onMusicError = (err) => {
+        if (settled) return;
+        settled = true;
+        this.isPlaying = false;
+        this._cleanupMusic();
+        reject(err);
+      };
+
+      music.addEventListener('ended', onMusicEnd);
+      music.addEventListener('error', (e) => onMusicError(new Error(`音乐播放失败: ${e.message || 'unknown'}`)));
+      music.play().catch(onMusicError);
+
+      // DJ 并行播放（失败不影响歌曲）
+      this._playDj(djUrl).catch(() => {});
+    });
+  }
+
+  /**
+   * 间奏模式：歌曲播到指定时间点时插入 DJ
+   */
+  _playWithInterlude(musicUrl, djUrl, djOffset, crossfadeMs) {
+    return new Promise((resolve, reject) => {
+      this._stopMusic();
+      this._interludeDjPlayed = false;
+
+      // 存储 resolve，让 _stopMusic 可以中断 Promise
+      this._musicResolve = resolve;
+      this._musicReject = reject;
+
+      const music = new Audio(musicUrl);
+      this._musicEl = music;
+      this._allAudioEls.add(music);
+      this.isPlaying = true;
+      this._startProgressTracking(music);
+
+      if (crossfadeMs > 0) {
+        music.volume = 0;
+        this._fadeVolume(music, 0, NORMAL_LEVEL, crossfadeMs);
+      } else {
+        music.volume = NORMAL_LEVEL;
+      }
+
+      // 监听时间更新，到达间奏点时播放 DJ
+      const timeUpdateTimer = setInterval(() => {
+        if (!music || music.paused || music.ended) {
+          clearInterval(timeUpdateTimer);
+          return;
+        }
+        if (music.currentTime >= djOffset && !this._interludeDjPlayed) {
+          this._interludeDjPlayed = true;
+          clearInterval(timeUpdateTimer);
+          this._playDj(djUrl).then(() => {
+            // DJ 结束后恢复状态（由调用方处理）
+          }).catch(() => {});
+        }
+      }, 250);
+
+      music.addEventListener('ended', () => {
+        clearInterval(timeUpdateTimer);
+        this.isPlaying = false;
+        this._cleanupMusic();
+        resolve({ finished: true });
       });
 
       music.addEventListener('error', (e) => {
+        clearInterval(timeUpdateTimer);
         this.isPlaying = false;
         this._cleanupMusic();
         reject(new Error(`音乐播放失败: ${e.message || 'unknown'}`));
       });
 
       music.play().catch(err => {
+        clearInterval(timeUpdateTimer);
         this.isPlaying = false;
         this._cleanupMusic();
         reject(err);
-      });
-
-      // 同时启动 DJ（会自动闪避音乐）
-      this._playDj(djUrl).then(() => {
-        djFinished = true;
-        tryResolve();
-      }).catch(() => {
-        djFinished = true;
-        tryResolve();
       });
     });
   }
@@ -166,6 +248,7 @@ export class AudioEngine {
 
       const audio = new Audio(url);
       this._djEl = audio;
+      this._allAudioEls.add(audio);
       audio.volume = 1.0;
 
       // 触发闪避
@@ -193,9 +276,7 @@ export class AudioEngine {
 
   _stopDj() {
     if (this._djEl) {
-      this._djEl.pause();
-      this._djEl.removeAttribute('src');
-      this._djEl.load(); // 强制释放音频资源
+      this._killAudio(this._djEl);
       this._djEl = null;
     }
   }
@@ -215,6 +296,7 @@ export class AudioEngine {
 
       const audio = new Audio(url);
       this._musicEl = audio;
+      this._allAudioEls.add(audio);
       this.isPlaying = true;
 
       // 进度追踪
@@ -258,7 +340,7 @@ export class AudioEngine {
   /**
    * 播放音乐 + 每次时间更新时回调（用于间奏触发 DJ）
    */
-  _playMusicWithCallback(url, crossfadeMs = 0, onTimeUpdate) {
+  playMusicWithTimeUpdate(url, crossfadeMs = 0, onTimeUpdate) {
     return new Promise((resolve, reject) => {
       this._stopMusic();
       this._interludeDjPlayed = false;
@@ -269,6 +351,7 @@ export class AudioEngine {
 
       const audio = new Audio(url);
       this._musicEl = audio;
+      this._allAudioEls.add(audio);
       this.isPlaying = true;
 
       // 进度追踪 + 回调
@@ -331,9 +414,7 @@ export class AudioEngine {
     }
 
     if (this._musicEl) {
-      this._musicEl.pause();
-      this._musicEl.removeAttribute('src');
-      this._musicEl.load(); // 强制释放音频资源，防止重叠
+      this._killAudio(this._musicEl);
       this._musicEl = null;
     }
     this.isPlaying = false;
@@ -342,6 +423,18 @@ export class AudioEngine {
       clearInterval(this._duckTimer);
       this._duckTimer = null;
     }
+  }
+
+  /** 彻底销毁一个 Audio 元素 */
+  _killAudio(el) {
+    if (!el) return;
+    try {
+      el.pause();
+      el.currentTime = 0;
+      el.removeAttribute('src');
+      el.load();
+    } catch (_) {}
+    this._allAudioEls.delete(el);
   }
 
   /**
@@ -456,6 +549,19 @@ export class AudioEngine {
     if (this._djEl) this._djEl.volume = v;
   }
 
+  /**
+   * 停止所有音频（公开方法）
+   */
+  stopAll() {
+    this._stopDj();
+    this._stopMusic();
+    // 杀掉所有残留音频元素（防止泄漏）
+    for (const el of this._allAudioEls) {
+      this._killAudio(el);
+    }
+    this._allAudioEls.clear();
+  }
+
   pause() {
     if (this._musicEl) this._musicEl.pause();
     if (this._djEl) this._djEl.pause();
@@ -464,20 +570,6 @@ export class AudioEngine {
   resume() {
     if (this._musicEl) this._musicEl.play();
     if (this._djEl) this._djEl.play();
-  }
-
-  pauseMusic() {
-    if (this._musicEl && !this._musicEl.paused) {
-      this._musicEl.pause();
-      this.isPlaying = false;
-    }
-  }
-
-  resumeMusic() {
-    if (this._musicEl && this._musicEl.paused) {
-      this._musicEl.play();
-      this.isPlaying = true;
-    }
   }
 
   prefetchAudio(url) {

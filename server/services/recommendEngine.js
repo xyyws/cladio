@@ -64,23 +64,23 @@ async function buildSongPool(context = {}, count = 10, excludeIds = []) {
   const keywords = getAtmosphereKeywords(weather, dayPhase, mood);
 
   // 1. 从弹药库随机取"安全牌"（用户红心歌单）
-  const safePool = await pickRandom(Math.min(5, count), excludeIds);
+  const safePool = await pickRandom(Math.min(8, count), excludeIds);
   const safeIds = safePool.map(t => String(t.id));
 
   // 2. 从弹药库中按氛围关键词搜索
   const arsenalMatches = [];
   for (const kw of keywords.slice(0, 2)) {
     try {
-      const matches = await searchArsenal(kw, 3);
+      const matches = await searchArsenal(kw, 5);
       arsenalMatches.push(...matches.map(t => String(t.id)));
     } catch (_) {}
   }
 
-  // 3. 用氛围关键词从网易云全局搜索注入新鲜感
+  // 3. 用多个氛围关键词从网易云全局搜索注入新鲜感
   const freshPool = [];
-  for (const kw of keywords.slice(0, 1)) {
+  for (const kw of keywords.slice(0, 2)) {
     try {
-      const songs = await netease.search(kw, { limit: 3 });
+      const songs = await netease.search(kw, { limit: 5 });
       freshPool.push(...songs.map(s => String(s.id)));
     } catch (err) {
       console.warn(`[Recommend] 全局搜索 "${kw}" 失败:`, err.message);
@@ -91,6 +91,8 @@ async function buildSongPool(context = {}, count = 10, excludeIds = []) {
   const excludeSet = new Set(excludeIds);
   const combined = [...new Set([...safeIds, ...arsenalMatches, ...freshPool])]
     .filter(id => !excludeSet.has(id));
+
+  console.log(`[Recommend] 候选池: ${combined.length} 首 (安全牌${safeIds.length} + 弹药库${arsenalMatches.length} + 新鲜${freshPool.length})`);
 
   return shuffle(combined).slice(0, count);
 }

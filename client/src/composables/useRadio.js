@@ -9,38 +9,106 @@ function ensureHttps(url) {
   return url.replace(/^http:\/\//, 'https://');
 }
 
+// 解析音频 URL（自动处理相对/绝对路径 + HTTPS）
+function resolveUrl(path) {
+  if (!path) return null;
+  if (path.startsWith('http')) return ensureHttps(path);
+  return `${API_BASE}${path}`;
+}
+
 /**
- * 电台控制器 — 轮询 /api/next，编排 AudioEngine 播放周期
+ * 电台控制器 — 状态机 + 统一播放控制
  *
- * /api/next 返回格式:
- *   { status: 200, data: { djAudio, playlist, segue } }
+ * 状态机：
+ *   idle → loading → speaking | playing | error → idle | paused
  */
 
 const POLL_AFTER_MUSIC_MS = 3000;
 const POLL_IDLE_MS = 10000;
+const MIN_PLAY_SECONDS = 10;
+const MAX_CONSECUTIVE_FAILS = 3;
+
+// ══════════════════════════════════════════════
+// 轻量级状态机
+// ══════════════════════════════════════════════
+
+const VALID_TRANSITIONS = {
+  idle:    ['loading', 'playing', 'speaking', 'error', 'paused'],
+  loading: ['idle', 'playing', 'speaking', 'error'],
+  speaking:['playing', 'idle', 'paused', 'error'],
+  playing: ['idle', 'paused', 'error', 'speaking', 'playing'],
+  paused:  ['playing', 'idle', 'loading'],
+  error:   ['idle', 'loading', 'playing'],
+};
+
+function createStateMachine(initialState, onTransition) {
+  let current = initialState;
+
+  return {
+    get current() { return current; },
+    transition(to) {
+      if (!VALID_TRANSITIONS[current]?.includes(to)) {
+        console.warn(`[StateMachine] 非法转换: ${current} → ${to}，强制允许`);
+      }
+      const from = current;
+      current = to;
+      onTransition?.(from, to);
+      return to;
+    },
+    can(to) {
+      return VALID_TRANSITIONS[current]?.includes(to) ?? false;
+    },
+  };
+}
+
+// ══════════════════════════════════════════════
+// useRadio Composable
+// ══════════════════════════════════════════════
 
 export function useRadio() {
   const engine = new AudioEngine();
 
+  // ── 响应式状态 ──
   const state = reactive({
-    status: 'idle',       // idle | loading | speaking | playing | error
+    status: 'idle',
     say: '',
     segue: '',
     djAudio: null,
     playlist: [],
-    currentIndex: 0,      // 当前播放歌曲索引
+    currentIndex: 0,
     error: null,
     lastUpdated: null,
-    env: null,            // 保存环境天气上下文
+    env: null,
   });
 
+  // ── 状态机 ──
+  const fsm = createStateMachine('idle', (from, to) => {
+    state.status = to;
+    console.log(`[Radio] 状态: ${from} → ${to}`);
+  });
+
+  // ── 内部控制变量 ──
   let pollTimer = null;
   let stopped = false;
+  let _failedCount = 0;
+  let _playSessionId = 0;
+  let _chatPlaySessionId = 0;
+  let _cycleId = 0; // 播放周期 ID（递增，区分不同周期）
 
-  // ── 轮询 /api/next ──
+  // 防止 sessionId 溢出（安全阈值：2^53 的 1%）
+  const SESSION_ID_MAX = Number.MAX_SAFE_INTEGER * 0.01;
+
+  // ── 状态转换辅助 ──
+  function setStatus(status) {
+    fsm.transition(status);
+  }
+
+  // ══════════════════════════════════════════════
+  // API 调用
+  // ══════════════════════════════════════════════
 
   async function fetchNext() {
-    state.status = 'loading';
+    setStatus('loading');
     state.error = null;
 
     try {
@@ -50,29 +118,30 @@ export function useRadio() {
         throw new Error(body.error?.message || `HTTP ${res.status}`);
       }
       const json = await res.json();
-      if (json.data && json.data.env) {
-        state.env = json.data.env;
-      }
-      return json.data; // 取 data 字段
+      if (json.data?.env) state.env = json.data.env;
+      return json.data;
     } catch (err) {
       console.error('[Radio] /api/next 失败:', err.message);
-      state.status = 'error';
+      setStatus('error');
       state.error = err.message;
       return null;
     }
   }
 
-  // ── 播放一个周期 ──
+  // ══════════════════════════════════════════════
+  // 播放周期
+  // ══════════════════════════════════════════════
 
   async function playCycle(data) {
     if (!data || stopped) return;
 
-    // 【关键防御】把没有链接的、不能播的歌直接踢出队列
+    // 捕获当前周期 ID，用于检测是否被外部中断
+    const myCycleId = _cycleId;
+
     const playlist = (data.playlist || []).filter(
       song => song.playable === true && song.audioUrl !== null
     );
 
-    // 如果没有可播放的歌，立刻重试
     if (playlist.length === 0) {
       console.warn('[Radio] 无可播放歌曲，重新获取...');
       schedulePoll(1000);
@@ -80,7 +149,7 @@ export function useRadio() {
     }
 
     state.djAudio = data.djAudio;
-    state.say = data.say; // DJ 同步词
+    state.say = data.say;
     state.playlist = playlist;
     state.currentIndex = 0;
     state.segue = data.segue;
@@ -89,95 +158,115 @@ export function useRadio() {
     console.log(`[Radio] 播放队列: ${playlist.length}/${(data.playlist || []).length} 首可播放`);
 
     const firstTrack = playlist[0];
-    const musicUrl = firstTrack
-      ? ensureHttps(firstTrack.audioUrl.startsWith('http') ? firstTrack.audioUrl : `${API_BASE}${firstTrack.audioUrl}`)
-      : null;
-
-    const djUrl = data.djAudio
-      ? (data.djAudio.startsWith('http') ? data.djAudio : `${API_BASE}${data.djAudio}`)
-      : null;
-
+    const musicUrl = resolveUrl(firstTrack?.audioUrl);
+    const djUrl = resolveUrl(data.djAudio);
     const djTiming = data.djTiming || { mode: djUrl ? 'intro' : 'none' };
 
-    // 预加载
-    const secondTrack = playlist[1];
-    if (secondTrack) {
-      const prefetchUrl = ensureHttps(secondTrack.audioUrl.startsWith('http')
-        ? secondTrack.audioUrl
-        : `${API_BASE}${secondTrack.audioUrl}`);
-      engine.prefetchAudio(prefetchUrl);
+    // 预加载下一首
+    if (playlist[1]) {
+      engine.prefetchAudio(resolveUrl(playlist[1].audioUrl));
     }
 
+    // 确定播放模式
+    let playMode = 'sequential';
+    if (djTiming.mode === 'intro' && djUrl) {
+      playMode = 'parallel';
+    } else if (djTiming.mode === 'interlude' && djUrl) {
+      playMode = 'interlude';
+    }
+
+    // 更新状态
+    if (playMode === 'parallel') {
+      setStatus('speaking');
+    } else {
+      setStatus('playing');
+    }
+
+    const startTime = Date.now();
     let played = false;
 
     try {
-      if (djTiming.mode === 'intro' && djUrl) {
-        // ── 模式 1：前奏 ≥15s，歌曲和 DJ 并行播放 ──
-        state.status = 'speaking';
-        played = true;
-        // 同时启动歌曲和 DJ，DJ 结束后音乐自动恢复
-        await engine.playWithDjOverlay(musicUrl, djUrl, data.segue);
-
-      } else if (djTiming.mode === 'interlude' && djUrl) {
-        // ── 模式 2：间奏/尾奏间隙，歌曲播到指定秒数时叠加 DJ ──
-        state.status = 'playing';
-        played = true;
-
-        // 开始播歌，同时监听时间
-        await engine._playMusicWithCallback(musicUrl, 0, (currentTime) => {
-          // 到达间隙起点时播放 DJ（只触发一次）
-          if (currentTime >= djTiming.offset && !engine._interludeDjPlayed) {
-            engine._interludeDjPlayed = true;
-            state.status = 'speaking';
-            engine._playDj(djUrl).then(() => {
-              state.status = 'playing';
-            }).catch(() => {});
-          }
-        });
-
-      } else {
-        // ── 模式 3：无合适间隙，直接播歌 ──
-        if (musicUrl) {
-          state.status = 'playing';
-          await engine._playMusic(musicUrl, 0);
-          played = true;
-        }
+      // 播放前再次检查是否被中断（用户可能在准备期间点击了队列）
+      if (_cycleId !== myCycleId) {
+        console.log('[Radio] playCycle 播放前被中断');
+        return;
       }
+
+      // 检查是否已有音频在播放（用户点击了队列歌曲）
+      if (engine._musicEl) {
+        console.log('[Radio] 已有音频在播放，跳过 playCycle');
+        return;
+      }
+
+      await engine.playAudio(musicUrl, {
+        djUrl,
+        mode: playMode,
+        djOffset: djTiming.offset || 0,
+        segue: data.segue,
+      });
+      played = true;
     } catch (err) {
       console.warn('[Radio] 播放周期异常:', err.message);
     }
 
+    // 检查是否被外部中断（用户切歌/暂停）
+    if (_cycleId !== myCycleId) {
+      console.log('[Radio] playCycle 被外部中断，不继续调度');
+      return;
+    }
+
+    // 最小播放时间保护
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (played && elapsed < MIN_PLAY_SECONDS) {
+      console.warn(`[Radio] 播放周期过短 (${elapsed.toFixed(1)}s < ${MIN_PLAY_SECONDS}s)，强制等待`);
+      await new Promise(r => setTimeout(r, (MIN_PLAY_SECONDS - elapsed) * 1000));
+    }
+
+    // 再次检查是否被中断（等待期间可能被中断）
+    if (_cycleId !== myCycleId) {
+      console.log('[Radio] playCycle 被外部中断，不继续调度');
+      return;
+    }
+
     if (stopped) return;
     engine._interludeDjPlayed = false;
-    state.status = 'idle';
+    setStatus('idle');
 
     const delay = played ? POLL_AFTER_MUSIC_MS : POLL_IDLE_MS;
     schedulePoll(delay);
   }
 
-  // ── 轮询调度 ──
+  // ══════════════════════════════════════════════
+  // 轮询调度
+  // ══════════════════════════════════════════════
 
   function schedulePoll(delay = POLL_IDLE_MS) {
     clearTimeout(pollTimer);
     if (stopped) return;
 
+    // 捕获当前 cycleId，定时器触发时检查是否已失效
+    const scheduledCycleId = _cycleId;
+
     pollTimer = setTimeout(async () => {
-      if (stopped) return;
+      if (stopped || _cycleId !== scheduledCycleId) return;
       const data = await fetchNext();
-      if (data) {
+      if (data && _cycleId === scheduledCycleId) {
         await playCycle(data);
-      } else {
+      } else if (!data) {
         schedulePoll(POLL_IDLE_MS);
       }
     }, delay);
   }
 
-  // ── 公开方法 ──
+  // ══════════════════════════════════════════════
+  // 公开方法
+  // ══════════════════════════════════════════════
 
   async function start() {
     stopped = false;
-    clearTimeout(pollTimer); // 清除轮询，防止重复播放
-    engine.ensureContext(); // 用户手势触发
+    _failedCount = 0;
+    clearTimeout(pollTimer);
+    engine.ensureContext();
     console.log('[Radio] 启动电台...');
 
     const data = await fetchNext();
@@ -190,9 +279,10 @@ export function useRadio() {
 
   async function startFromArsenal() {
     stopped = false;
-    clearTimeout(pollTimer); // 清除轮询，防止重复播放
+    _failedCount = 0;
+    clearTimeout(pollTimer);
     engine.ensureContext();
-    state.status = 'loading';
+    setStatus('loading');
     console.log('[Radio] 从弹药库播放...');
 
     try {
@@ -204,7 +294,7 @@ export function useRadio() {
 
         if (playlist.length === 0) {
           console.warn('[Radio] 弹药库无可播放歌曲');
-          state.status = 'idle';
+          setStatus('idle');
           return;
         }
 
@@ -212,210 +302,208 @@ export function useRadio() {
         state.currentIndex = 0;
         state.djAudio = null;
         state.lastUpdated = Date.now();
-        _currentPlaylistIndex = 0;
 
         console.log(`[Radio] 弹药库加载 ${playlist.length} 首歌`);
         await playTrackByIndex(0);
       } else {
         console.warn('[Radio] 弹药库为空');
-        state.status = 'idle';
+        setStatus('idle');
       }
     } catch (err) {
       console.error('[Radio] 弹药库加载失败:', err.message);
-      state.status = 'error';
+      setStatus('error');
       state.error = err.message;
     }
   }
 
   function stop() {
     stopped = true;
-    clearTimeout(pollTimer);
-    engine.destroy();
-    state.status = 'idle';
+    _failedCount = 0;
+    _interruptAll();
+    setStatus('idle');
     console.log('[Radio] 电台已停止');
   }
 
   function toggle() {
-    console.log('[Radio] toggle called, status:', state.status, 'playlist:', state.playlist.length, 'currentIndex:', state.currentIndex);
+    console.log('[Radio] toggle, status:', state.status);
 
     if (state.status === 'paused') {
-      // 从暂停状态恢复
-      console.log('[Radio] Resuming from paused');
-      engine.resumeMusic();
-      state.status = 'playing';
+      // 暂停恢复：检查是否还有活跃的音频元素
+      if (engine._musicEl && engine._musicEl.paused) {
+        engine.resumeMusic();
+        setStatus('playing');
+      } else {
+        // 音频元素已丢失，重新播放当前歌曲
+        if (state.playlist.length > 0 && state.currentIndex < state.playlist.length) {
+          playTrackByIndex(state.currentIndex);
+        }
+      }
     } else if (state.status === 'idle' || state.status === 'error') {
-      // 有播放列表时恢复播放，没有时不自动加载
       if (state.playlist.length > 0 && state.currentIndex < state.playlist.length) {
-        console.log('[Radio] Starting playback from idle/error');
-        _isStartingTrack = false;
-        _failedCount = 0; // 重置失败计数
+        _failedCount = 0;
         engine.ensureContext();
         playTrackByIndex(state.currentIndex);
       } else {
-        console.log('[Radio] No playlist or invalid index, fetching next');
-        // 没有播放列表，获取新歌
         fetchNext().then(data => {
           if (data) playCycle(data);
         });
       }
     } else {
-      // 暂停而非停止
-      console.log('[Radio] Pausing playback');
+      // 暂停：只暂停音频，保留元素以便恢复；清除定时器防止自动切歌
+      _cycleId++;
+      clearTimeout(pollTimer);
       engine.pauseMusic();
-      state.status = 'paused';
+      setStatus('paused');
     }
   }
 
-  // ── 播放列表内导航 ──
-  let _currentPlaylistIndex = 0;
-  let _isStartingTrack = false; // 播放锁，防止多首同时播放
-  let _playSessionId = 0; // 播放会话 ID，防止旧回调干扰
-  let _failedCount = 0; // 连续失败计数器
-  const MAX_CONSECUTIVE_FAILS = 3; // 最大连续失败次数
-  let _chatPlaySessionId = 0; // 聊天播放会话 ID，防止多个循环同时运行
+  // ══════════════════════════════════════════════
+  // 播放列表导航
+  // ══════════════════════════════════════════════
+
+  /**
+   * 中断所有正在进行的播放（统一入口）
+   * 递增 cycleId 使旧的 playCycle 自动失效
+   */
+  function _interruptAll() {
+    _cycleId++;
+    clearTimeout(pollTimer);
+    engine.stopAll();
+  }
 
   function next() {
-    _isStartingTrack = false;
-    clearTimeout(pollTimer);
-    engine._stopDj();
-    engine._stopMusic();
+    _interruptAll();
 
-    // 检查连续失败次数
     if (_failedCount >= MAX_CONSECUTIVE_FAILS) {
       console.warn(`[Radio] 连续 ${_failedCount} 首播放失败，停止播放`);
-      state.status = 'error';
+      setStatus('error');
       state.error = '音频资源过期，请刷新页面重试';
       _failedCount = 0;
       return;
     }
 
-    // 如果播放列表有多首歌，循环播放；只有一首歌时获取新歌
-    if (state.playlist.length > 1) {
-      // 循环播放：到末尾回到第一首
-      state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
-      _currentPlaylistIndex = state.currentIndex;
-      playTrackByIndex(_currentPlaylistIndex);
+    // 空列表守卫
+    if (state.playlist.length === 0) {
+      setStatus('idle');
+      fetchNext().then(data => { if (data) playCycle(data); });
       return;
     }
 
-    // 只有一首歌或无播放列表，获取新歌
+    if (state.playlist.length > 1) {
+      state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
+      playTrackByIndex(state.currentIndex);
+      return;
+    }
+
+    // 单曲：获取新歌
     state.currentIndex = 0;
-    _currentPlaylistIndex = 0;
-    state.status = 'idle';
     _failedCount = 0;
+    setStatus('idle');
     fetchNext().then(data => {
       if (data) playCycle(data);
     });
   }
 
   function prev() {
-    _isStartingTrack = false;
-    clearTimeout(pollTimer);
-    engine._stopDj();
-    engine._stopMusic();
+    _interruptAll();
 
-    if (state.playlist.length > 0) {
-      // 循环播放：到开头回到最后一首
-      state.currentIndex = (state.currentIndex - 1 + state.playlist.length) % state.playlist.length;
-      _currentPlaylistIndex = state.currentIndex;
-      playTrackByIndex(_currentPlaylistIndex);
+    // 空列表守卫
+    if (state.playlist.length === 0) {
+      setStatus('idle');
+      fetchNext().then(data => { if (data) playCycle(data); });
       return;
     }
 
-    _currentPlaylistIndex = 0;
-    state.status = 'idle';
-    fetchNext().then(data => {
-      if (data) playCycle(data);
-    });
+    state.currentIndex = (state.currentIndex - 1 + state.playlist.length) % state.playlist.length;
+    playTrackByIndex(state.currentIndex);
   }
 
   function playTrackByIndex(index) {
     const track = state.playlist[index];
     if (!track?.audioUrl) return;
 
-    // 更新当前索引
+    _interruptAll();
+
     state.currentIndex = index;
-    _currentPlaylistIndex = index;
-
-    // 递增会话 ID，旧回调会自动失效
+    state.say = null; // 清除旧的 DJ 台词
+    // 防溢出：接近上限时重置
+    if (_playSessionId > SESSION_ID_MAX) _playSessionId = 0;
     const sessionId = ++_playSessionId;
-    _isStartingTrack = true;
-    engine._stopMusic();
 
-    const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
-      ? track.audioUrl
-      : `${API_BASE}${track.audioUrl}`);
+    const musicUrl = resolveUrl(track.audioUrl);
+    setStatus('playing');
+    const startTime = Date.now();
 
-    state.status = 'playing';
-    engine._playMusic(musicUrl, 0).then((result) => {
+    engine.playAudio(musicUrl, { mode: 'sequential' }).then((result) => {
+      // sessionId 不匹配说明已被新的 playTrackByIndex 调用取代，直接丢弃
       if (sessionId !== _playSessionId) return;
-      _isStartingTrack = false;
 
-      // 只有真正播放完成才自动下一首，被中断的不触发
-      if (result && result.finished === true) {
-        _failedCount = 0;
-        if (!stopped) next();
+      // finished=false 说明被外部中断（用户切歌/暂停），不自动切歌
+      if (result?.finished !== true) {
+        console.log('[Radio] 歌曲被中断，不自动切歌');
+        return;
       }
+
+      const elapsed = (Date.now() - startTime) / 1000;
+      console.log(`[Radio] 歌曲播放 ${elapsed.toFixed(1)}s`);
+
+      if (elapsed < MIN_PLAY_SECONDS) {
+        console.warn(`[Radio] 播放时间过短 (${elapsed.toFixed(1)}s)，音频可能加载失败`);
+        _failedCount++;
+        setStatus('error');
+        state.error = '音频加载失败，正在重试...';
+        if (!stopped) setTimeout(() => next(), 5000);
+        return;
+      }
+
+      _failedCount = 0;
+      if (!stopped) next();
     }).catch(err => {
       if (sessionId !== _playSessionId) return;
-      _isStartingTrack = false;
       _failedCount++;
       console.warn(`[Radio] 播放失败 (${_failedCount}/${MAX_CONSECUTIVE_FAILS}):`, err.message);
-      if (!stopped) next();
+      if (!stopped) setTimeout(() => next(), 3000);
     });
   }
 
   function playTrack(track) {
     if (!track?.audioUrl) return;
 
-    _isStartingTrack = false;
-    clearTimeout(pollTimer);
-    engine._stopDj();
-    engine._stopMusic();
-
-    let idx = state.playlist.findIndex(t => t.songId === track.songId);
-
-    // 如果不在列表中，加入列表
+    // 查找歌曲在列表中的位置（取最后一个匹配项，避免重复 songId 问题）
+    let idx = -1;
+    for (let i = state.playlist.length - 1; i >= 0; i--) {
+      if (state.playlist[i].songId === track.songId) { idx = i; break; }
+    }
     if (idx < 0) {
       state.playlist.push(track);
       idx = state.playlist.length - 1;
     }
 
     state.currentIndex = idx;
-    _currentPlaylistIndex = idx;
-    playTrackByIndex(idx);
+    playTrackByIndex(idx); // playTrackByIndex 内部会调用 _interruptAll
   }
 
   function setVolume(val) {
     engine.setMasterVolume(val / 100);
   }
 
-  /**
-   * 播放聊天推荐的歌曲
-   * @param {object} chatData - { reply, songs, tracks, reason }
-   */
   async function playChatSongs(chatData) {
-    console.log('[Radio] playChatSongs called, tracks:', chatData?.tracks?.length);
+    console.log('[Radio] playChatSongs, tracks:', chatData?.tracks?.length);
     if (!chatData?.tracks?.length) return;
 
-    // 过滤可播放的歌曲
     const playlist = chatData.tracks.filter(
       song => song.playable === true && song.audioUrl !== null
     );
-
-    console.log('[Radio] playable tracks:', playlist.length);
 
     if (playlist.length === 0) {
       console.warn('[Radio] 聊天推荐的歌曲全部不可播放');
       return;
     }
 
-    // 停止当前播放（中断之前的循环）
+    // 中断所有正在进行的播放
+    _interruptAll();
     stopped = true;
-    clearTimeout(pollTimer);
-    engine._stopMusic();
 
-    // 递增会话 ID，旧循环会自动退出
     const sessionId = ++_chatPlaySessionId;
 
     state.playlist = playlist;
@@ -424,37 +512,24 @@ export function useRadio() {
     state.segue = 'crossfade:2000';
     state.lastUpdated = Date.now();
 
-    console.log(`[Radio] 聊天推荐: ${playlist.length} 首歌，队列已更新`);
+    console.log(`[Radio] 聊天推荐: ${playlist.length} 首歌`);
 
-    // 顺序播放所有推荐歌曲（循环播放）
     stopped = false;
     let playIndex = 0;
+    const PLAY_TIMEOUT_MS = 600000;
+
     while (!stopped && sessionId === _chatPlaySessionId) {
       const track = playlist[playIndex % playlist.length];
-
-      const musicUrl = ensureHttps(track.audioUrl.startsWith('http')
-        ? track.audioUrl
-        : `${API_BASE}${track.audioUrl}`);
+      const musicUrl = resolveUrl(track.audioUrl);
 
       state.currentIndex = playIndex % playlist.length;
-      state.status = 'playing';
+      setStatus('playing');
 
       try {
-        await engine._playMusic(musicUrl, 0);
-        await new Promise(resolve => {
-          const check = setInterval(() => {
-            // 只在真正停止或会话过期时退出，暂停时不退出
-            if (stopped || sessionId !== _chatPlaySessionId || !engine._musicEl) {
-              clearInterval(check);
-              resolve();
-            }
-            // 如果音频自然结束（ended），也退出
-            if (engine._musicEl && engine._musicEl.ended) {
-              clearInterval(check);
-              resolve();
-            }
-          }, 500);
-        });
+        await Promise.race([
+          engine.playAudio(musicUrl, { mode: 'sequential' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('播放超时')), PLAY_TIMEOUT_MS)),
+        ]);
       } catch (err) {
         console.warn(`[Radio] 歌曲 ${track.songId} 播放失败:`, err.message);
       }
@@ -462,9 +537,8 @@ export function useRadio() {
       playIndex++;
     }
 
-    // 播放结束（用户点了停止），不启动电台轮播
     if (!stopped) {
-      state.status = 'idle';
+      setStatus('idle');
     }
   }
 
@@ -480,5 +554,6 @@ export function useRadio() {
     setVolume,
     playChatSongs,
     playTrack,
+    playTrackByIndex,
   };
 }
