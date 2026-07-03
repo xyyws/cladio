@@ -175,7 +175,7 @@ const weatherLabel = computed(() => {
 
 // ── Login Modal ──
 const showLoginModal = ref(false)
-const loginMode = ref('uid') // 'uid' | 'token'
+const loginMode = ref('qr') // 'qr' | 'uid'  (默认扫码)
 const loginUid = ref('')
 const loginToken = ref('')
 const loginLoading = ref(false)
@@ -190,6 +190,13 @@ const qrImg = ref('')
 const qrStatus = ref('') // '' | 'waiting' | 'scanned' | 'confirmed' | 'expired'
 const qrStatusText = ref('')
 const qrPollTimer = ref(null)
+
+// 自动开始扫码：打开弹窗时自动获取二维码
+watch(showLoginModal, (val) => {
+  if (val && loginMode.value === 'qr' && !user.loggedIn) {
+    nextTick(() => startQrLogin())
+  }
+})
 
 async function handleUidLogin() {
   const uid = loginUid.value.trim()
@@ -878,87 +885,93 @@ onUnmounted(() => {
 
     <!-- ═══ Login Modal ═══ -->
     <Transition name="fade-scale">
-      <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false">
+      <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false; closeQrPanel()">
         <div class="login-card">
-          <h2 class="font-dot text-xl text-text-primary tracking-widest mb-1">CONNECT</h2>
-          <p class="font-mono text-[9px] text-text-dim mb-4 tracking-wider uppercase">接入你的网易云音乐</p>
 
-          <!-- 登录方式切换标签 -->
-          <div class="login-tabs" v-if="!showTokenPanel && !showQrPanel">
-            <button
-              class="login-tab"
-              :class="{ active: loginMode === 'uid' }"
-              @click="loginMode = 'uid'; loginError = ''"
-            >UID</button>
-            <button
-              class="login-tab"
-              :class="{ active: loginMode === 'qr' }"
-              @click="loginMode = 'qr'; loginError = ''"
-            >扫码</button>
+          <!-- 标题区 -->
+          <div class="login-header">
+            <div class="login-logo-ring">
+              <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Claudio&backgroundColor=0a0a1a" class="w-10 h-10" />
+            </div>
+            <h2 class="font-dot text-lg text-text-primary tracking-widest mt-3">CONNECT</h2>
+            <p class="font-mono text-[9px] text-text-dim mt-1 tracking-wider">接入你的网易云音乐</p>
           </div>
 
-          <!-- ═══ QR 扫码登录 ═══ -->
-          <div class="w-full mb-4" v-if="loginMode === 'qr' && !showTokenPanel">
-            <!-- 未开始/加载中 -->
-            <div v-if="!showQrPanel" class="flex flex-col items-center">
-              <button
-                class="login-btn-go w-full py-3"
-                @click="startQrLogin"
-              >
-                生成二维码
-              </button>
+          <!-- ═══ QR 扫码登录（默认） ═══ -->
+          <div class="w-full" v-if="!showTokenPanel && loginMode !== 'uid'">
+            <div class="qr-stage">
+              <!-- 自动开始：进入即生成二维码 -->
+              <div v-if="!showQrPanel" class="qr-loading">
+                <div class="qr-loading-spinner"></div>
+                <span class="font-mono text-[10px] text-text-dim mt-2">正在获取二维码...</span>
+              </div>
+
+              <!-- 二维码展示 -->
+              <div v-else class="qr-showcase">
+                <!-- 二维码外框 -->
+                <div class="qr-frame" :class="qrStatus">
+                  <!-- 扫描角标动画 -->
+                  <div class="qr-scanline" v-if="qrStatus === 'waiting'"></div>
+
+                  <img
+                    v-if="qrImg"
+                    :src="qrImg"
+                    alt="扫码登录"
+                    class="qr-image"
+                  />
+
+                  <!-- 过期遮罩 -->
+                  <div v-if="qrStatus === 'expired'" class="qr-mask" @click="refreshQr">
+                    <svg class="w-6 h-6 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span class="font-mono text-[9px] text-white/60 mt-1">已过期，点击刷新</span>
+                  </div>
+
+                  <!-- 成功遮罩 -->
+                  <div v-if="qrStatus === 'confirmed'" class="qr-mask qr-mask-success">
+                    <svg class="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                    </svg>
+                  </div>
+                </div>
+
+                <!-- 状态指示 -->
+                <div class="qr-status-bar">
+                  <span class="qr-status-dot" :class="qrStatus"></span>
+                  <span class="font-mono text-[10px]" :class="{
+                    'text-text-dim': qrStatus === 'waiting',
+                    'text-amber-400': qrStatus === 'scanned',
+                    'text-green-400': qrStatus === 'confirmed',
+                    'text-rose-400': qrStatus === 'expired' || qrStatus === 'error',
+                  }">{{ qrStatusText }}</span>
+                </div>
+
+                <!-- 操作提示 -->
+                <p class="font-mono text-[8px] text-text-dim/40 text-center mt-2">
+                  打开 <span class="text-neon-cyan/50">网易云音乐 APP</span> → 扫一扫
+                </p>
+              </div>
             </div>
 
-            <!-- 二维码展示 -->
-            <div v-else class="flex flex-col items-center">
-              <!-- 二维码图片 -->
-              <div class="qr-container" :class="{ 'qr-expired': qrStatus === 'expired' }">
-                <img
-                  v-if="qrImg"
-                  :src="qrImg"
-                  alt="扫码登录"
-                  class="qr-image"
-                />
-                <!-- 过期遮罩 -->
-                <div v-if="qrStatus === 'expired'" class="qr-overlay" @click="refreshQr">
-                  <span class="font-mono text-xs text-white">点击刷新</span>
-                </div>
-                <!-- 已确认遮罩 -->
-                <div v-if="qrStatus === 'confirmed'" class="qr-overlay qr-success">
-                  <span class="text-2xl">✓</span>
-                </div>
-              </div>
-
-              <!-- 状态文字 -->
-              <p class="font-mono text-[10px] mt-3 text-center" :class="{
-                'text-text-dim': qrStatus === 'waiting',
-                'text-yellow-400': qrStatus === 'scanned',
-                'text-green-400': qrStatus === 'confirmed',
-                'text-neon-pink': qrStatus === 'expired' || qrStatus === 'error',
-              }">
-                {{ qrStatusText }}
-              </p>
-
-              <!-- 扫码中的动画指示 -->
-              <div v-if="qrStatus === 'waiting' || qrStatus === 'scanned'" class="qr-pulse mt-2"></div>
-
-              <!-- 操作按钮 -->
-              <div class="flex gap-2 mt-4 w-full">
-                <button
-                  v-if="qrStatus === 'expired'"
-                  class="login-btn-go flex-1"
-                  @click="refreshQr"
-                >刷新二维码</button>
-                <button
-                  class="login-btn secondary font-mono flex-1"
-                  @click="closeQrPanel"
-                >← 返回</button>
-              </div>
+            <!-- 其他登录方式 -->
+            <div class="login-divider">
+              <span class="login-divider-text">其他方式</span>
+            </div>
+            <div class="login-alt-row">
+              <button class="login-alt-btn" @click="loginMode = 'uid'">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                <span>UID</span>
+              </button>
+              <button class="login-alt-btn" @click="showTokenPanel = true; loginError = ''">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                <span>Token</span>
+              </button>
             </div>
           </div>
 
           <!-- ═══ UID 基础模式 ═══ -->
-          <div class="w-full mb-4" v-if="loginMode === 'uid' && !showTokenPanel && !showQrPanel">
+          <div class="w-full" v-if="loginMode === 'uid' && !showTokenPanel">
             <div class="login-section-label font-mono">
               <span class="text-neon-cyan/60">&gt;</span> ENTER UID:
             </div>
@@ -976,33 +989,28 @@ onUnmounted(() => {
                 :disabled="loginLoading"
               >→</button>
             </div>
-            <p v-if="loginError && !showTokenPanel" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
+            <p v-if="loginError" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
             <div class="login-hint font-mono mt-3">
               <span class="text-text-dim/50">▸</span> 读取公开红心歌单
               <br/>
               <span class="text-text-dim/50">▸</span> 无每日推荐 · 无相似歌曲
             </div>
 
-            <button
-              class="login-btn-system-override mt-5"
-              @click="showTokenPanel = true; loginError = ''"
-            >
-              <span class="override-dot"></span>
-              SYSTEM OVERRIDE
+            <button class="login-back-link" @click="loginMode = 'qr'; loginError = ''">
+              ← 扫码登录
             </button>
           </div>
 
           <!-- ═══ Token 深度模式 ═══ -->
           <div class="w-full" v-if="showTokenPanel">
             <div class="login-section-label font-mono">
-              <span class="text-neon-pink/60">&gt;</span> INJECT SESSION TOKEN
-              <span class="text-text-dim/40">(MUSIC_U)</span>:
+              <span class="text-neon-pink/60">&gt;</span> MUSIC_U TOKEN:
             </div>
             <div class="flex gap-2 mt-2">
               <input
                 v-model="loginToken"
                 type="text"
-                placeholder="粘贴 MUSIC_U Cookie"
+                placeholder="粘贴 MUSIC_U Cookie 值"
                 class="login-input font-mono flex-1"
                 @keydown.enter="handleTokenLogin"
               />
@@ -1012,14 +1020,13 @@ onUnmounted(() => {
                 :disabled="loginLoading"
               >→</button>
             </div>
-            <p v-if="loginError && showTokenPanel" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
+            <p v-if="loginError" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
 
             <div v-if="tokenSuccess" class="login-token-success mt-3">
               <p class="font-mono text-[10px] text-green-400">SESSION CONNECTED ✓</p>
-              <p class="font-mono text-[10px] text-green-400/60">FULL ACCESS GRANTED</p>
             </div>
 
-            <div v-if="!tokenSuccess" class="login-geek-guide mt-4">
+            <div v-if="!tokenSuccess" class="login-geek-guide mt-3">
               <p class="font-mono text-[8px] text-text-dim/40 leading-relaxed">
                 <span class="text-neon-pink/40">1.</span> 打开 music.163.com 并登录<br/>
                 <span class="text-neon-pink/40">2.</span> F12 → Application → Cookies<br/>
@@ -1028,15 +1035,15 @@ onUnmounted(() => {
               </p>
             </div>
 
-            <button
-              class="login-btn secondary font-mono w-full mt-4"
-              @click="showTokenPanel = false; loginError = ''; tokenSuccess = false"
-            >
-              ← BACK
+            <button class="login-back-link" @click="showTokenPanel = false; loginError = ''; tokenSuccess = false">
+              ← 扫码登录
             </button>
           </div>
 
-          <button class="login-btn secondary font-mono w-full mt-3" @click="showLoginModal = false; loginError = ''; tokenSuccess = false; closeQrPanel()">CANCEL</button>
+          <!-- 关闭 -->
+          <button class="login-close-btn" @click="showLoginModal = false; loginError = ''; tokenSuccess = false; closeQrPanel()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
         </div>
       </div>
     </Transition>
@@ -2136,13 +2143,41 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .login-tab.active { background: rgba(0,240,255,0.1); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,240,255,0.2); }
 
 /* ── QR Code ── */
-.qr-container { position: relative; width: 200px; height: 200px; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 12px 36px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.08); }
-.qr-image { width: 100%; height: 100%; object-fit: contain; padding: 12px; }
-.qr-container.qr-expired .qr-image { opacity: 0.3; filter: grayscale(1); }
-.qr-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); cursor: pointer; }
-.qr-overlay.qr-success { background: rgba(0,200,80,0.3); }
-.qr-pulse { width: 8px; height: 8px; border-radius: 50%; background: #00f0ff; animation: qr-pulse 1.5s ease-in-out infinite; }
-@keyframes qr-pulse { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+.qr-stage { min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.qr-loading { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 0; }
+.qr-loading-spinner { width: 28px; height: 28px; border: 2px solid rgba(0,240,255,0.15); border-top-color: #00f0ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.qr-showcase { display: flex; flex-direction: column; align-items: center; }
+.qr-frame { position: relative; width: 180px; height: 180px; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,240,255,0.08); transition: box-shadow 0.3s; }
+.qr-frame.scanned { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 2px rgba(251,191,36,0.4), 0 0 20px rgba(251,191,36,0.15); }
+.qr-frame.confirmed { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 2px rgba(74,222,128,0.4), 0 0 20px rgba(74,222,128,0.15); }
+.qr-frame.expired .qr-image { opacity: 0.2; filter: grayscale(1); }
+
+.qr-image { width: 100%; height: 100%; object-fit: contain; padding: 10px; }
+.qr-scanline { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #00f0ff, transparent); animation: scanline 2s ease-in-out infinite; z-index: 2; }
+@keyframes scanline { 0%, 100% { top: 0; } 50% { top: calc(100% - 2px); } }
+
+.qr-mask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); cursor: pointer; gap: 4px; }
+.qr-mask-success { background: rgba(0,0,0,0.4); }
+
+.qr-status-bar { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.qr-status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.qr-status-dot.waiting { background: #00f0ff; animation: pulse-dot 1.5s ease-in-out infinite; }
+.qr-status-dot.scanned { background: #fbbf24; }
+.qr-status-dot.confirmed { background: #4ade80; }
+.qr-status-dot.expired, .qr-status-dot.error { background: #f43f5e; }
+@keyframes pulse-dot { 0%, 100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 1; transform: scale(1.5); } }
+
+/* ── Login Alt Methods ── */
+.login-divider { display: flex; align-items: center; gap: 12px; width: 100%; margin: 18px 0 12px; }
+.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.06); }
+.login-divider-text { font-size: 9px; color: rgba(255,255,255,0.25); letter-spacing: 0.1em; white-space: nowrap; }
+.login-alt-row { display: flex; gap: 8px; width: 100%; }
+.login-alt-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); font-family: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; cursor: pointer; transition: all 0.2s; }
+.login-alt-btn:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+.login-back-link { display: block; width: 100%; margin-top: 12px; padding: 8px; background: none; border: none; color: rgba(255,255,255,0.3); font-family: inherit; font-size: 10px; cursor: pointer; transition: color 0.2s; text-align: center; }
+.login-back-link:hover { color: rgba(255,255,255,0.6); }
 
 .fade-scale-enter-active,
 .fade-scale-leave-active {
@@ -2158,28 +2193,33 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .login-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(6, 6, 14, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(6, 6, 14, 0.88);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 20px;
 }
 .login-card {
   width: 100%;
   max-width: 340px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 32px 28px;
+  background: rgba(12, 12, 24, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  padding: 28px 24px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.04);
+  position: relative;
 }
+.login-header { display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; }
+.login-logo-ring { width: 52px; height: 52px; border-radius: 16px; background: rgba(0,240,255,0.06); border: 1px solid rgba(0,240,255,0.12); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.login-close-btn { position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; border-radius: 8px; background: rgba(255,255,255,0.04); border: none; color: rgba(255,255,255,0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.login-close-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
 .login-section-label {
   font-size: 10px;
   letter-spacing: 0.15em;
