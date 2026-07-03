@@ -1,14 +1,18 @@
 /**
  * QR Code Login Controller
  *
- * 对齐 Mineradio 方案：
- *   - POST /api/qr/create  — 生成二维码
- *   - GET  /api/qr/check/:key — 轮询扫码状态
- *   - GET  /api/login/status   — 查询登录态
- *   - POST /api/logout         — 登出
- *
- * 扫码成功后自动保存 Cookie 到 .cookie 文件，后续 API 调用自动使用。
+ * 直接调用 NeteaseCloudMusicApi 函数（对齐 Mineradio 方案），
+ * 不走 HTTP 代理，避免参数丢失和设备风控。
  */
+const {
+  login_qr_key,
+  login_qr_create,
+  login_qr_check,
+  login_status,
+  user_account,
+  user_playlist,
+} = require('../../NeteaseCloudMusicApiBackup-main/node_modules/NeteaseCloudMusicApi');
+
 const netease = require('../services/netease');
 const { getUserPlaylists, loadUserArsenal } = require('../services/playlistService');
 
@@ -17,32 +21,29 @@ async function createQR(req, res, next) {
   try {
     const timestamp = Date.now();
 
-    // Step 1: 获取 unikey
-    const keyRes = await netease.api('/login/qr/key', { timestamp });
-    const unikey = keyRes?.data?.unikey;
+    // Step 1: 获取 unikey（对齐 Mineradio: 直接调函数）
+    const keyRes = await login_qr_key({ timestamp });
+    const unikey = keyRes?.body?.data?.unikey;
 
     if (!unikey) {
       return res.status(500).json({ error: '获取二维码 key 失败' });
     }
 
-    // Step 2: 生成二维码图片
-    const qrRes = await netease.api('/login/qr/create', {
-      key: unikey,
-      qrimg: true,
-      timestamp,
-    });
+    // Step 2: 生成二维码图片（对齐 Mineradio: qrimg: true）
+    const qrRes = await login_qr_create({ key: unikey, qrimg: true, timestamp });
+    const d = qrRes?.body?.data;
 
     res.json({
       key: unikey,
-      qrimg: qrRes?.data?.qrimg || null,
-      qrurl: qrRes?.data?.qrurl || null,
+      qrimg: d?.qrimg || null,
+      qrurl: d?.qrurl || null,
     });
   } catch (err) {
     next(err);
   }
 }
 
-// 检查扫码状态
+// 检查扫码状态（对齐 Mineradio: noCookie: true + cookie 重试）
 async function checkQR(req, res, next) {
   try {
     const { key } = req.params;
@@ -51,22 +52,41 @@ async function checkQR(req, res, next) {
       return res.status(400).json({ error: 'key 必填' });
     }
 
-    const result = await netease.api('/login/qr/check', {
-      key,
-      timestamp: Date.now(),
-    });
+    // 对齐 Mineradio: 先用 noCookie: true 请求
+    let r = await login_qr_check({ key, noCookie: true, timestamp: Date.now() });
+    let body = r?.body || {};
+    let code = Number(body.code || r?.code || 0);
+    let msg = body.message || r?.message || '';
+    let cookie = readCookieFromResponse(r);
 
-    const code = result?.code || 0;
+    // 803 成功但没拿到 cookie → 重试（不带 noCookie）
+    if (code === 803 && !cookie) {
+      try {
+        const retry = await login_qr_check({ key, timestamp: Date.now() });
+        const retryCookie = readCookieFromResponse(retry);
+        if (retryCookie) {
+          r = retry;
+          body = retry.body || body;
+          code = Number(body.code || retry.code || code);
+          msg = body.message || retry.message || msg;
+          cookie = retryCookie;
+        }
+      } catch (retryErr) {
+        console.warn('[QR Login] cookie retry failed:', retryErr.message);
+      }
+    }
 
     // 803 = 登录成功 → 保存 Cookie + 加载歌单
-    if (code === 803 && result?.cookie) {
-      // 保存 Cookie 到 .cookie 文件（对齐 Mineradio saveCookie 逻辑）
-      netease.saveCookie(result.cookie);
+    if (code === 803) {
+      if (cookie) {
+        netease.saveCookie(cookie);
+        console.log('[QR Login] Cookie 已保存');
+      }
 
       // 尝试加载用户红心歌单
       try {
-        const accountRes = await netease.api('/user/account', {});
-        const uid = String(accountRes?.account?.id || '');
+        const accountRes = await user_account({ cookie: cookie || '' });
+        const uid = String(accountRes?.body?.account?.id || '');
         if (uid) {
           const playlists = await getUserPlaylists(uid);
           const heartPlaylist = playlists.find(p => p.name?.includes('喜欢')) || playlists[0];
@@ -81,20 +101,36 @@ async function checkQR(req, res, next) {
 
       return res.json({
         code,
-        message: result?.message || '登录成功',
-        cookie: result.cookie,
+        message: msg || '登录成功',
+        cookie,
         loggedIn: true,
+        nickname: body.profile?.nickname || body.nickname || '网易云用户',
+        avatarUrl: body.profile?.avatarUrl || body.avatarUrl || '',
       });
     }
 
     // 800=过期, 801=等待扫码, 802=已扫码待确认
-    res.json({
-      code,
-      message: result?.message || '',
-    });
+    res.json({ code, message: msg });
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * 从响应中读取 Cookie（对齐 Mineradio readCookieFromResponse）
+ */
+function readCookieFromResponse(resp) {
+  const candidates = [
+    resp?.cookie,
+    resp?.body?.cookie,
+    resp?.body?.data?.cookie,
+    resp?.body?.data?.cookies,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+    if (Array.isArray(c) && c.length > 0) return c.join('; ').trim();
+  }
+  return '';
 }
 
 // 查询登录状态
@@ -106,7 +142,6 @@ async function getLoginStatus(req, res, next) {
       return res.json({ loggedIn: false });
     }
 
-    // 有 Cookie 时查询用户信息
     try {
       const accountRes = await netease.api('/user/account', {});
       const profile = accountRes?.profile;
@@ -124,12 +159,7 @@ async function getLoginStatus(req, res, next) {
       }
     } catch (_) {}
 
-    // Cookie 存在但查询失败（可能过期）
-    return res.json({
-      loggedIn: true,
-      pendingProfile: true,
-      source: status.source,
-    });
+    return res.json({ loggedIn: true, pendingProfile: true, source: status.source });
   } catch (err) {
     next(err);
   }
@@ -138,14 +168,7 @@ async function getLoginStatus(req, res, next) {
 // 登出
 async function logout(req, res, next) {
   try {
-    // 尝试调用网易云登出 API（忽略错误）
-    try {
-      await netease.api('/logout', {});
-    } catch (_) {}
-
-    // 清除本地 Cookie
     netease.clearCookie();
-
     res.json({ success: true, message: '已登出' });
   } catch (err) {
     next(err);
