@@ -190,10 +190,11 @@ const qrImg = ref('')
 const qrStatus = ref('') // '' | 'waiting' | 'scanned' | 'confirmed' | 'expired'
 const qrStatusText = ref('')
 const qrPollTimer = ref(null)
+const loginChecked = ref(false) // 页面加载时登录状态是否已检查
 
-// 自动开始扫码：打开弹窗时自动获取二维码
+// 自动开始扫码：打开弹窗时自动获取二维码（仅在登录检查完成后）
 watch(showLoginModal, (val) => {
-  if (val && loginMode.value === 'qr' && !user.loggedIn) {
+  if (val && loginMode.value === 'qr' && !user.loggedIn && loginChecked.value) {
     nextTick(() => startQrLogin())
   }
 })
@@ -840,7 +841,22 @@ onMounted(() => {
   fetchWeather()
   initWeatherParticles()
   weatherTimer = setInterval(fetchWeather, 300000) // 5分钟轮询一次
+
+  // 检查服务器端登录状态（页面加载时同步）
+  checkServerLogin()
 })
+
+async function checkServerLogin() {
+  try {
+    const res = await fetch(`${API_BASE}/api/login/status`)
+    const data = await res.json()
+    if (data.loggedIn && data.uid) {
+      loginWithToken(data.uid, data.nickname || '网易云用户', data.avatarUrl || '')
+      console.log('[Login] 从服务器恢复登录态:', data.nickname)
+    }
+  } catch (_) {}
+  loginChecked.value = true
+}
 onUnmounted(() => {
   particleSystem?.destroy()
   stop()
