@@ -183,6 +183,14 @@ const loginError = ref('')
 const tokenSuccess = ref(false)
 const showTokenPanel = ref(false)
 
+// ── QR Login ──
+const showQrPanel = ref(false)
+const qrKey = ref('')
+const qrImg = ref('')
+const qrStatus = ref('') // '' | 'waiting' | 'scanned' | 'confirmed' | 'expired'
+const qrStatusText = ref('')
+const qrPollTimer = ref(null)
+
 async function handleUidLogin() {
   const uid = loginUid.value.trim()
   if (!uid) {
@@ -252,8 +260,109 @@ async function handleTokenLogin() {
   }
 }
 
+// ── QR Login Functions ──
+
+async function startQrLogin() {
+  showQrPanel.value = true
+  qrStatus.value = ''
+  qrStatusText.value = '正在获取二维码...'
+  qrImg.value = ''
+  qrKey.value = ''
+  loginError.value = ''
+
+  try {
+    const res = await fetch(`${API_BASE}/api/qr/create`, { method: 'POST' })
+    const data = await res.json()
+
+    if (data.error) {
+      loginError.value = data.error
+      qrStatus.value = 'error'
+      return
+    }
+
+    qrKey.value = data.key
+    qrImg.value = data.qrimg // base64 data:image/png
+    qrStatus.value = 'waiting'
+    qrStatusText.value = '请使用网易云音乐 APP 扫码'
+
+    // 开始轮询
+    startQrPolling()
+  } catch (err) {
+    loginError.value = '获取二维码失败'
+    qrStatus.value = 'error'
+  }
+}
+
+function startQrPolling() {
+  stopQrPolling()
+  qrPollTimer.value = setInterval(async () => {
+    if (!qrKey.value) return
+
+    try {
+      const res = await fetch(`${API_BASE}/api/qr/check/${qrKey.value}`)
+      const data = await res.json()
+      const code = data.code
+
+      if (code === 801) {
+        // 等待扫码
+        qrStatus.value = 'waiting'
+        qrStatusText.value = '请使用网易云音乐 APP 扫码'
+      } else if (code === 802) {
+        // 已扫码，待确认
+        qrStatus.value = 'scanned'
+        qrStatusText.value = '已扫码，请在手机上确认'
+      } else if (code === 803) {
+        // 登录成功
+        qrStatus.value = 'confirmed'
+        qrStatusText.value = '登录成功！'
+        stopQrPolling()
+
+        // 更新用户状态
+        if (data.loggedIn) {
+          loginWithToken(data.uid || '', data.nickname || '网易云用户', data.avatarUrl || '')
+        }
+
+        // 1.5秒后关闭弹窗
+        setTimeout(() => {
+          showLoginModal.value = false
+          showQrPanel.value = false
+        }, 1500)
+      } else if (code === 800) {
+        // 二维码过期
+        qrStatus.value = 'expired'
+        qrStatusText.value = '二维码已过期，点击刷新'
+        stopQrPolling()
+      }
+    } catch (err) {
+      // 轮询失败不停止，继续尝试
+      console.warn('[QR] poll error:', err.message)
+    }
+  }, 2000) // 每2秒轮询一次
+}
+
+function stopQrPolling() {
+  if (qrPollTimer.value) {
+    clearInterval(qrPollTimer.value)
+    qrPollTimer.value = null
+  }
+}
+
+function refreshQr() {
+  startQrLogin()
+}
+
+function closeQrPanel() {
+  stopQrPolling()
+  showQrPanel.value = false
+  qrStatus.value = ''
+  qrImg.value = ''
+  qrKey.value = ''
+}
+
 function handleLogout() {
   logout()
+  // 清除服务器端 Cookie
+  fetch(`${API_BASE}/api/logout`, { method: 'POST' }).catch(() => {})
 }
 
 // ── App State ──
@@ -772,10 +881,84 @@ onUnmounted(() => {
       <div v-if="showLoginModal" class="login-overlay" @click.self="showLoginModal = false">
         <div class="login-card">
           <h2 class="font-dot text-xl text-text-primary tracking-widest mb-1">CONNECT</h2>
-          <p class="font-mono text-[9px] text-text-dim mb-5 tracking-wider uppercase">接入你的网易云音乐</p>
+          <p class="font-mono text-[9px] text-text-dim mb-4 tracking-wider uppercase">接入你的网易云音乐</p>
 
-          <!-- UID 基础模式 -->
-          <div class="w-full mb-4" v-if="!showTokenPanel">
+          <!-- 登录方式切换标签 -->
+          <div class="login-tabs" v-if="!showTokenPanel && !showQrPanel">
+            <button
+              class="login-tab"
+              :class="{ active: loginMode === 'uid' }"
+              @click="loginMode = 'uid'; loginError = ''"
+            >UID</button>
+            <button
+              class="login-tab"
+              :class="{ active: loginMode === 'qr' }"
+              @click="loginMode = 'qr'; loginError = ''"
+            >扫码</button>
+          </div>
+
+          <!-- ═══ QR 扫码登录 ═══ -->
+          <div class="w-full mb-4" v-if="loginMode === 'qr' && !showTokenPanel">
+            <!-- 未开始/加载中 -->
+            <div v-if="!showQrPanel" class="flex flex-col items-center">
+              <button
+                class="login-btn-go w-full py-3"
+                @click="startQrLogin"
+              >
+                生成二维码
+              </button>
+            </div>
+
+            <!-- 二维码展示 -->
+            <div v-else class="flex flex-col items-center">
+              <!-- 二维码图片 -->
+              <div class="qr-container" :class="{ 'qr-expired': qrStatus === 'expired' }">
+                <img
+                  v-if="qrImg"
+                  :src="qrImg"
+                  alt="扫码登录"
+                  class="qr-image"
+                />
+                <!-- 过期遮罩 -->
+                <div v-if="qrStatus === 'expired'" class="qr-overlay" @click="refreshQr">
+                  <span class="font-mono text-xs text-white">点击刷新</span>
+                </div>
+                <!-- 已确认遮罩 -->
+                <div v-if="qrStatus === 'confirmed'" class="qr-overlay qr-success">
+                  <span class="text-2xl">✓</span>
+                </div>
+              </div>
+
+              <!-- 状态文字 -->
+              <p class="font-mono text-[10px] mt-3 text-center" :class="{
+                'text-text-dim': qrStatus === 'waiting',
+                'text-yellow-400': qrStatus === 'scanned',
+                'text-green-400': qrStatus === 'confirmed',
+                'text-neon-pink': qrStatus === 'expired' || qrStatus === 'error',
+              }">
+                {{ qrStatusText }}
+              </p>
+
+              <!-- 扫码中的动画指示 -->
+              <div v-if="qrStatus === 'waiting' || qrStatus === 'scanned'" class="qr-pulse mt-2"></div>
+
+              <!-- 操作按钮 -->
+              <div class="flex gap-2 mt-4 w-full">
+                <button
+                  v-if="qrStatus === 'expired'"
+                  class="login-btn-go flex-1"
+                  @click="refreshQr"
+                >刷新二维码</button>
+                <button
+                  class="login-btn secondary font-mono flex-1"
+                  @click="closeQrPanel"
+                >← 返回</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ UID 基础模式 ═══ -->
+          <div class="w-full mb-4" v-if="loginMode === 'uid' && !showTokenPanel && !showQrPanel">
             <div class="login-section-label font-mono">
               <span class="text-neon-cyan/60">&gt;</span> ENTER UID:
             </div>
@@ -809,8 +992,8 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <!-- Token 深度模式 -->
-          <div class="w-full" v-else>
+          <!-- ═══ Token 深度模式 ═══ -->
+          <div class="w-full" v-if="showTokenPanel">
             <div class="login-section-label font-mono">
               <span class="text-neon-pink/60">&gt;</span> INJECT SESSION TOKEN
               <span class="text-text-dim/40">(MUSIC_U)</span>:
@@ -831,13 +1014,11 @@ onUnmounted(() => {
             </div>
             <p v-if="loginError && showTokenPanel" class="font-mono text-[9px] text-neon-pink mt-2">{{ loginError }}</p>
 
-            <!-- Token 成功 -->
             <div v-if="tokenSuccess" class="login-token-success mt-3">
               <p class="font-mono text-[10px] text-green-400">SESSION CONNECTED ✓</p>
               <p class="font-mono text-[10px] text-green-400/60">FULL ACCESS GRANTED</p>
             </div>
 
-            <!-- 极客说明书（打字机效果） -->
             <div v-if="!tokenSuccess" class="login-geek-guide mt-4">
               <p class="font-mono text-[8px] text-text-dim/40 leading-relaxed">
                 <span class="text-neon-pink/40">1.</span> 打开 music.163.com 并登录<br/>
@@ -855,7 +1036,7 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <button class="login-btn secondary font-mono w-full mt-3" @click="showLoginModal = false; loginError = ''; tokenSuccess = false">CANCEL</button>
+          <button class="login-btn secondary font-mono w-full mt-3" @click="showLoginModal = false; loginError = ''; tokenSuccess = false; closeQrPanel()">CANCEL</button>
         </div>
       </div>
     </Transition>
@@ -1948,6 +2129,21 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 }
 
 /* ── Vue Transitions ── */
+/* ── Login Tabs ── */
+.login-tabs { display: flex; gap: 6px; margin-bottom: 16px; padding: 3px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); }
+.login-tab { flex: 1; height: 32px; border: 0; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.4); font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.2s; }
+.login-tab:hover { color: rgba(255,255,255,0.7); }
+.login-tab.active { background: rgba(0,240,255,0.1); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,240,255,0.2); }
+
+/* ── QR Code ── */
+.qr-container { position: relative; width: 200px; height: 200px; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 12px 36px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.08); }
+.qr-image { width: 100%; height: 100%; object-fit: contain; padding: 12px; }
+.qr-container.qr-expired .qr-image { opacity: 0.3; filter: grayscale(1); }
+.qr-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); cursor: pointer; }
+.qr-overlay.qr-success { background: rgba(0,200,80,0.3); }
+.qr-pulse { width: 8px; height: 8px; border-radius: 50%; background: #00f0ff; animation: qr-pulse 1.5s ease-in-out infinite; }
+@keyframes qr-pulse { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+
 .fade-scale-enter-active,
 .fade-scale-leave-active {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
