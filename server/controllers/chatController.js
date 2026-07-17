@@ -365,6 +365,69 @@ async function callOrchestrator(message, history, context, scenario) {
   };
 }
 
+// ── 收藏歌曲处理 ──
+
+async function handleLikedRequest(message, timeRange) {
+  const { getLikedSongs } = require('../services/netease');
+
+  // 从登录状态获取 UID
+  const { getLoginStatus } = require('../services/netease');
+  const loginStatus = getLoginStatus();
+
+  // 尝试从多处获取 UID
+  let uid = null;
+  try {
+    const accountRes = await netease.api('/user/account', {});
+    uid = String(accountRes?.account?.id || '');
+  } catch (_) {}
+
+  if (!uid) {
+    return {
+      reply: '需要登录才能获取你的收藏歌曲哦~',
+      songs: [],
+      activityLog: [{ tool: 'liked', error: '未登录' }],
+    };
+  }
+
+  // 根据时间范围生成回复文案
+  const timeLabels = {
+    oldest: '很久之前收藏的',
+    newest: '最近收藏的',
+    all: '收藏的',
+  };
+  const timeLabel = timeLabels[timeRange] || '收藏的';
+
+  try {
+    const songs = await getLikedSongs(uid, { timeRange, limit: 5 });
+
+    if (songs.length === 0) {
+      return {
+        reply: `没有找到你${timeLabel}歌曲~`,
+        songs: [],
+        activityLog: [{ tool: 'liked', timeRange, count: 0 }],
+      };
+    }
+
+    const names = songs.slice(0, 3).map(s => `${s.name} - ${s.artists}`).join('、');
+    const reply = timeRange === 'oldest'
+      ? `翻到了你${timeLabel}经典：${names}，满满的回忆~`
+      : `从你的红心歌单里挑了几首${timeLabel}歌：${names}，希望你喜欢~`;
+
+    return {
+      reply,
+      songs: songs.map(s => String(s.id)),
+      activityLog: [{ tool: 'liked', timeRange, count: songs.length }],
+    };
+  } catch (err) {
+    console.error('[Liked] 获取失败:', err.message);
+    return {
+      reply: '获取收藏歌曲失败，换首试试？',
+      songs: [],
+      activityLog: [{ tool: 'liked', error: err.message }],
+    };
+  }
+}
+
 // ── 路由处理 ──
 
 async function postChat(req, res, next) {
@@ -408,6 +471,10 @@ async function postChat(req, res, next) {
       // 快速路径：预搜索短路（0 LLM）
       console.log('[Chat] 快速路径，使用 Node.js Agent');
       result = await runAgent(message, history);
+    } else if (routing.route === 'liked') {
+      // 收藏歌曲：从红心列表获取（0 LLM）
+      console.log(`[Chat] 收藏歌曲路径 (timeRange=${routing.params.timeRange})`);
+      result = await handleLikedRequest(message, routing.params.timeRange);
     } else if (routing.route === 'complex') {
       // 编排路径：调用 Python Orchestrator
       console.log(`[Chat] 编排路径 (scenario=${routing.params.scenario})，使用 Orchestrator`);

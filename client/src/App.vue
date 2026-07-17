@@ -7,13 +7,14 @@ import { initParticleSystem } from './composables/particleSystem.js'
 import WaveformVisualizer from './components/WaveformVisualizer.vue'
 import RadioView from './components/RadioView.vue'
 import ProfileView from './components/ProfileView.vue'
+import PlaylistView from './components/PlaylistView.vue'
 import FloatingComments from './components/FloatingComments.vue'
 import NowPlayingCard from './components/NowPlayingCard.vue'
 import SongDetailCard from './components/SongDetailCard.vue'
 
 // ── Shared Radio & Clock & User ──
 const radio = useRadio()
-const { state, engine, start, startFromArsenal, stop, toggle, prev, next, setVolume, playChatSongs, playTrack, playTrackByIndex } = radio
+const { state, engine, start, startFromArsenal, stop, toggle, prev, next, setVolume, playChatSongs, playTrack, playTrackByIndex, cyclePlayMode } = radio
 provide('radio', radio)
 
 const userCtx = useUser()
@@ -192,13 +193,7 @@ const qrStatusText = ref('')
 const qrPollTimer = ref(null)
 const loginChecked = ref(false) // 页面加载时登录状态是否已检查
 
-// 自动开始扫码：打开弹窗时自动获取二维码（必须等 loginChecked 完成）
-watch(() => showLoginModal.value, (val) => {
-  if (val && loginMode.value === 'qr' && !user.loggedIn && loginChecked.value) {
-    console.log('[QR] 触发 startQrLogin')
-    nextTick(() => startQrLogin())
-  }
-})
+// 不再自动触发，由用户点击按钮手动开始
 
 async function handleUidLogin() {
   const uid = loginUid.value.trim()
@@ -342,6 +337,7 @@ function startQrPolling() {
         // 更新用户状态
         if (data.loggedIn) {
           loginWithToken(data.uid || '', data.nickname || '网易云用户', data.avatarUrl || '')
+          syncLikedFromArsenal()
         }
 
         // 1.5秒后关闭弹窗
@@ -391,6 +387,126 @@ function handleLogout() {
 const activeCard = ref('main') // 'main' | 'radio' | 'profile'
 const showNowPlaying = ref(false)
 const showSongDetail = ref(false)
+const showUserMenu = ref(false)
+const showPlaylistView = ref(false)
+const showQueue = ref(false)
+const playerHidden = ref(false)
+
+// 语音转文本
+const isRecording = ref(false)
+let recognition = null
+
+function toggleVoice() {
+  if (isRecording.value) {
+    stopVoice()
+    return
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SpeechRecognition) {
+    pushSystemMsg('当前浏览器不支持语音识别')
+    return
+  }
+  recognition = new SpeechRecognition()
+  recognition.lang = 'zh-CN'
+  recognition.interimResults = true
+  recognition.continuous = false
+
+  recognition.onstart = () => { isRecording.value = true }
+
+  recognition.onresult = (e) => {
+    const transcript = Array.from(e.results)
+      .map(r => r[0].transcript)
+      .join('')
+    chatInput.value = transcript
+  }
+
+  recognition.onend = () => { isRecording.value = false }
+
+  recognition.onerror = (e) => {
+    isRecording.value = false
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      pushSystemMsg(`语音识别错误: ${e.error}`)
+    }
+  }
+
+  recognition.start()
+}
+
+function stopVoice() {
+  if (recognition) {
+    recognition.stop()
+    recognition = null
+  }
+  isRecording.value = false
+}
+
+// 音质
+const QUALITY_ORDER = ['standard', 'higher', 'exhigh', 'lossless']
+const QUALITY_LABELS = { standard: '标准', higher: '较高', exhigh: '极高', lossless: '无损' }
+const currentQuality = ref('exhigh')
+const qualityLabel = computed(() => QUALITY_LABELS[currentQuality.value] || '极高')
+
+async function loadQuality() {
+  try {
+    const res = await fetch(`${API_BASE}/api/quality`)
+    const data = await res.json()
+    if (data.status === 200) currentQuality.value = data.data.level
+  } catch (_) {}
+}
+
+async function cycleQuality() {
+  const idx = QUALITY_ORDER.indexOf(currentQuality.value)
+  const next = QUALITY_ORDER[(idx + 1) % QUALITY_ORDER.length]
+  try {
+    const res = await fetch(`${API_BASE}/api/quality`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: next }),
+    })
+    const data = await res.json()
+    if (data.status === 200) {
+      currentQuality.value = data.data.level
+      pushSystemMsg(`🔊 音质切换: ${QUALITY_LABELS[next]} (${data.data.desc})`)
+    }
+  } catch (_) {}
+}
+const queueTracks = ref([]) // 弹药库歌曲列表
+
+// 加载弹药库歌曲用于播放列表展示
+async function loadQueueTracks() {
+  try {
+    const res = await fetch(`${API_BASE}/api/arsenal/play?limit=50`)
+    const data = await res.json()
+    queueTracks.value = data.data?.playlist || []
+  } catch (_) {}
+}
+
+// 从播放列表点击歌曲 → 替换电台播放列表并播放
+function playFromQueue(index) {
+  if (!queueTracks.value.length) return
+  // 用弹药库列表替换电台播放列表
+  state.playlist = queueTracks.value.map(t => ({
+    songId: t.songId || t.id,
+    title: t.title || t.name,
+    artist: t.artist || t.artists,
+    coverUrl: t.coverUrl,
+    audioUrl: t.audioUrl,
+    playable: t.playable !== false,
+  }))
+  state.currentIndex = index
+  playTrackByIndex(index)
+  showQueue.value = false
+}
+
+// 弹药库切换后重置电台状态
+function onArsenalSwitched({ name }) {
+  pushSystemMsg(`🎵 已切换歌单「${name}」`)
+  // 停止当前播放，清空播放列表，下次播放时从新弹药库选歌
+  stop()
+  state.playlist = []
+  state.currentIndex = 0
+  queueTracks.value = [] // 清空队列缓存，下次打开时重新加载
+}
 const detailSong = ref(null)
 const theme = ref(localStorage.getItem('claudio-theme') || 'dark')
 const queueExpanded = ref(false) // 歌单折叠展开状态
@@ -586,6 +702,29 @@ const currentTrack = computed(() => state.playlist?.[state.currentIndex] || null
 // ── Like Song ──
 const likedSongs = ref(JSON.parse(localStorage.getItem('claudio-liked') || '{}'))
 const isLiked = computed(() => currentTrack.value?.songId && !!likedSongs.value[currentTrack.value.songId])
+
+// 从网易云同步真实红心状态
+async function syncLikedFromArsenal() {
+  try {
+    const uid = user.id
+    if (!uid) return
+    const res = await fetch(`${API_BASE}/api/likelist?uid=${uid}`)
+    const data = await res.json()
+    const ids = data.data?.ids || []
+    let changed = false
+    for (const id of ids) {
+      const sid = String(id)
+      if (!likedSongs.value[sid]) {
+        likedSongs.value[sid] = true
+        changed = true
+      }
+    }
+    if (changed) {
+      localStorage.setItem('claudio-liked', JSON.stringify(likedSongs.value))
+      console.log(`[Like] 同步红心歌曲: ${ids.length} 首`)
+    }
+  } catch (_) {}
+}
 
 async function likeCurrentTrack() {
   const track = currentTrack.value
@@ -858,6 +997,9 @@ onMounted(() => {
 
   // 检查服务器端登录状态（页面加载时同步）
   checkServerLogin()
+
+  // 加载音质设置
+  loadQuality()
 })
 
 async function checkServerLogin() {
@@ -867,18 +1009,12 @@ async function checkServerLogin() {
     if (data.loggedIn && data.uid) {
       loginWithToken(data.uid, data.nickname || '网易云用户', data.avatarUrl || '')
       console.log('[Login] 从服务器恢复登录态:', data.nickname)
+      syncLikedFromArsenal()
     } else {
-      console.log('[Login] 未登录')
-      // loginChecked 先设为 true，再弹登录框（避免 watcher 竞态）
-      loginChecked.value = true
-      showLoginModal.value = true
-      return
+      console.log('[Login] 未登录，请点击 LOGIN 登录')
     }
   } catch (e) {
     console.warn('[Login] 状态检查失败:', e.message)
-    loginChecked.value = true
-    showLoginModal.value = true
-    return
   }
   loginChecked.value = true
 }
@@ -908,6 +1044,10 @@ onUnmounted(() => {
     </Transition>
     <Transition name="fade-scale">
       <ProfileView v-if="activeCard === 'profile'" @close="activeCard = 'main'" @avatar-updated="(data) => djAvatar = data" />
+    </Transition>
+
+    <Transition name="fade-scale">
+      <PlaylistView v-if="showPlaylistView" @close="showPlaylistView = false" @arsenal-switched="onArsenalSwitched" />
     </Transition>
 
     <!-- ═══ Now Playing Page ═══ -->
@@ -941,10 +1081,12 @@ onUnmounted(() => {
           <!-- ═══ QR 扫码登录（默认） ═══ -->
           <div class="w-full" v-if="!showTokenPanel && loginMode !== 'uid'">
             <div class="qr-stage">
-              <!-- 自动开始：进入即生成二维码 -->
-              <div v-if="!showQrPanel" class="qr-loading">
-                <div class="qr-loading-spinner"></div>
-                <span class="font-mono text-[10px] text-text-dim mt-2">正在获取二维码...</span>
+              <!-- 点击按钮生成二维码 -->
+              <div v-if="!showQrPanel" class="qr-start">
+                <button class="qr-start-btn" @click="startQrLogin">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+                  <span>生成二维码</span>
+                </button>
               </div>
 
               <!-- 错误状态 -->
@@ -1108,11 +1250,31 @@ onUnmounted(() => {
           <span class="font-mono text-text-primary tracking-[0.3em] text-sm uppercase">Claudio</span>
         </div>
         <div class="flex items-center gap-2.5 font-mono text-[8px] tracking-[0.1em] text-text-dim uppercase flex-shrink-0">
-          <div class="login-pill" :class="{ 'login-pill--basic': user.loginMode === 'basic', 'login-pill--full': user.loginMode === 'full' }" @click="showLoginModal = true">
-            <span v-if="user.loggedIn && user.loginMode === 'full'" class="login-status-dot login-status-dot--full"></span>
-            <span v-else-if="user.loggedIn" class="login-status-dot login-status-dot--basic"></span>
-            <span>{{ user.loggedIn ? (user.loginMode === 'full' ? 'FULL ACCESS' : 'UID:' + user.id) : 'LOGIN' }}</span>
+          <div class="login-pill-wrapper" @mouseenter="showUserMenu = true" @mouseleave="showUserMenu = false">
+            <div class="login-pill" :class="{ 'login-pill--basic': user.loginMode === 'basic', 'login-pill--full': user.loginMode === 'full' }" @click="user.loggedIn ? null : showLoginModal = true">
+              <span v-if="user.loggedIn && user.loginMode === 'full'" class="login-status-dot login-status-dot--full"></span>
+              <span v-else-if="user.loggedIn" class="login-status-dot login-status-dot--basic"></span>
+              <span>{{ user.loggedIn ? (user.loginMode === 'full' ? 'FULL ACCESS' : 'UID:' + user.id) : 'LOGIN' }}</span>
+            </div>
+            <!-- 用户菜单（已登录时显示） -->
+            <div v-if="user.loggedIn && showUserMenu" class="user-dropdown">
+              <button class="user-dropdown-item" @click="handleLogout">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                退出登录
+              </button>
+            </div>
           </div>
+
+          <!-- Playlist Button -->
+          <button
+            v-if="user.loggedIn"
+            class="header-icon-btn"
+            @click="showPlaylistView = true"
+            title="歌单"
+            aria-label="打开歌单"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </button>
 
           <!-- Theme Toggle Switch -->
           <div class="theme-toggle" @click="toggleTheme(theme === 'dark' ? 'light' : 'dark')" :title="theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'">
@@ -1209,7 +1371,10 @@ onUnmounted(() => {
       </section>
 
       <!-- ── Ultra Compact Player (Ref 2) ── -->
-      <section class="ultra-compact-player mt-6">
+      <!-- 隐藏播放条时的恢复按钮 -->
+      <button v-if="playerHidden" class="player-restore" @click="playerHidden = false" aria-label="显示播放条">SHOW</button>
+
+      <section class="ultra-compact-player mt-6" :class="{ 'player-hidden': playerHidden }">
         <div class="player-main flex items-center justify-between w-full mb-3 gap-1">
           <div class="track-info flex items-center gap-1.5 flex-1 min-w-0">
             <div class="w-4 h-4 flex items-end gap-[2px] flex-shrink-0">
@@ -1255,19 +1420,75 @@ onUnmounted(() => {
             <button class="player-btn" @click="next">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
             </button>
-            <!-- Stop -->
-            <button class="player-btn opacity-60 hover:opacity-100">
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
-            </button>
+            <!-- Queue -->
+            <div class="queue-wrap" @mouseenter="showQueue = true; loadQueueTracks()" @mouseleave="showQueue = false">
+              <button class="player-btn opacity-60 hover:opacity-100" @click="showQueue = !showQueue; loadQueueTracks()" title="播放列表" aria-label="播放列表">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><circle cx="3" cy="6" r="1" fill="currentColor"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="3" cy="18" r="1" fill="currentColor"/></svg>
+              </button>
+              <Transition name="qdrop">
+                <div v-if="showQueue" class="queue-dropdown">
+                  <div class="queue-header">
+                    <span class="queue-title">播放列表</span>
+                    <div class="flex items-center gap-2">
+                      <button class="queue-mode-btn" @click.stop="cyclePlayMode" :title="`播放模式: ${state.playbackModeLabel}`" aria-label="切换播放模式">
+                        <!-- sequential -->
+                        <svg v-if="state.playbackMode === 'sequential'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                        <!-- repeat-one -->
+                        <svg v-else-if="state.playbackMode === 'repeat-one'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="10" y="15" font-size="8" fill="currentColor" stroke="none" text-anchor="middle" font-weight="bold">1</text></svg>
+                        <!-- shuffle -->
+                        <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                      </button>
+                      <span class="queue-count">{{ queueTracks.length }} 首</span>
+                    </div>
+                  </div>
+                  <div class="queue-list">
+                    <div
+                      v-for="(track, i) in queueTracks"
+                      :key="track.songId || i"
+                      class="queue-item"
+                      :class="{ active: isActive && currentTrack?.songId === track.songId }"
+                      @click="playFromQueue(i)"
+                    >
+                      <span class="queue-idx">{{ isActive && currentTrack?.songId === track.songId ? '▶' : i + 1 }}</span>
+                      <div class="queue-info">
+                        <span class="queue-name">{{ track.title || track.songId }}</span>
+                        <span class="queue-artist">{{ track.artist || '' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="queue-footer" @click="showQueue = false; showPlaylistView = true">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                    <span>管理歌单</span>
+                  </div>
+                </div>
+              </Transition>
+            </div>
             <!-- Favorite -->
-            <button class="player-btn opacity-60 hover:opacity-100" @click="likeCurrentTrack" :class="{ 'text-neon-pink': isLiked }">
-              <svg width="10" height="10" viewBox="0 0 24 24" :fill="isLiked ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+            <button class="player-btn hover:opacity-100" @click="likeCurrentTrack" :class="isLiked ? 'like-active' : 'opacity-60'">
+              <svg :width="isLiked ? 12 : 10" :height="isLiked ? 12 : 10" viewBox="0 0 24 24" stroke="none" stroke-linecap="round" stroke-linejoin="round">
+                <defs v-if="isLiked">
+                  <linearGradient id="rainbow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#ff2d78">
+                      <animate attributeName="stop-color" values="#ff2d78;#ff6b6b;#fbbf24;#34d399;#60a5fa;#a78bfa;#ff2d78" dur="3s" repeatCount="indefinite"/>
+                    </stop>
+                    <stop offset="100%" stop-color="#a78bfa">
+                      <animate attributeName="stop-color" values="#a78bfa;#ff2d78;#ff6b6b;#fbbf24;#34d399;#60a5fa;#a78bfa" dur="3s" repeatCount="indefinite"/>
+                    </stop>
+                  </linearGradient>
+                </defs>
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" :fill="isLiked ? 'url(#rainbow-grad)' : 'none'" :stroke="isLiked ? 'url(#rainbow-grad)' : 'currentColor'" :stroke-width="isLiked ? 1 : 2.5"/>
+              </svg>
             </button>
           </div>
 
           <div class="extra-controls font-mono text-[8px] tracking-[0.05em] text-text-dim flex items-center justify-end gap-1 flex-1 min-w-0">
-            <button class="player-btn-pill flex-shrink-0 hidden sm:block">HIDE</button>
-            <button class="player-btn-pill flex-shrink-0">FAV</button>
+            <button class="player-btn-pill flex-shrink-0 hidden sm:block" @click="playerHidden = !playerHidden">{{ playerHidden ? 'SHOW' : 'HIDE' }}</button>
+            <button
+              class="player-btn-pill flex-shrink-0"
+              @click="cycleQuality"
+              :title="`音质: ${qualityLabel}`"
+              :class="{ 'text-neon-cyan': currentQuality === 'lossless' }"
+            >{{ qualityLabel }}</button>
             <div class="flex items-center gap-1 ml-0.5 min-w-0">
               <span class="flex-shrink-0">VOL</span>
               <input type="range" min="0" max="100" v-model="volume" @input="onVolumeChange" class="vol-slider-micro w-6 sm:w-8" />
@@ -1438,6 +1659,16 @@ onUnmounted(() => {
               <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="showMemory = !showMemory; if (showMemory) loadUserMemories()" :class="{ 'text-neon-cyan': showMemory }" title="Memory">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7.5L12 22l-3-5.5C7 14.5 5 12 5 9a7 7 0 0 1 7-7z"></path><circle cx="12" cy="9" r="2.5"></circle></svg>
               </button>
+              <!-- Voice -->
+              <button
+                class="icon-btn hover-glow opacity-40 hover:opacity-100"
+                :class="{ 'voice-active': isRecording }"
+                @click="toggleVoice"
+                :title="isRecording ? '停止录音' : '语音输入'"
+                aria-label="语音输入"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              </button>
               <!-- Clear Chat -->
               <button class="icon-btn hover-glow opacity-40 hover:opacity-100" @click="clearChat" title="Clear chat">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -1486,6 +1717,17 @@ onUnmounted(() => {
     </main>
   </div>
 </template>
+
+/* 全局光标覆盖（不 scoped） */
+<style>
+*, *::before, *::after {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23bd00ff'/%3E%3Cstop offset='100%25' stop-color='%2300f0ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2300f0ff' stroke='%2300f0ff' stroke-width='4' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2306060e' stroke='%2306060e' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='url(%23g)'/%3E%3C/svg%3E") 2 2, auto !important;
+}
+a, button, [role="button"], input[type="range"],
+input[type="range"]::-webkit-slider-thumb {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cdefs%3E%3ClinearGradient id='g-hover' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff007f'/%3E%3Cstop offset='100%25' stop-color='%237f00ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%23ff2d78' stroke='%23ff2d78' stroke-width='4' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='%2306060e' stroke='%2306060e' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpath d='M 2,2 V 13 H 4 V 12 H 5 V 11 H 6 V 10 V 18 H 8 V 10 H 9 V 11 H 11 V 12 H 12 H 11 V 11 H 10 V 10 H 9 V 9 H 8 V 8 H 7 V 7 H 6 V 6 H 5 V 5 H 4 V 4 H 3 V 3 Z' fill='url(%23g-hover)'/%3E%3C/svg%3E") 2 2, pointer !important;
+}
+</style>
 
 <style scoped>
 /* ── Layout ── */
@@ -1899,7 +2141,26 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 .tag:hover { border-color: #00f0ff; color: #00f0ff; background: rgba(0, 240, 255, 0.05); }
 
 /* ── Ultra Compact Player (Ref 2) ── */
-.ultra-compact-player { padding: 0 8px; }
+.ultra-compact-player { padding: 0 8px; transition: all 0.3s ease; }
+.player-hidden { max-height: 0; overflow: hidden; opacity: 0; padding: 0; margin: 0 !important; }
+.player-restore {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 4px 12px; margin: 4px auto 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.35);
+  font-family: monospace; font-size: 9px; letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.player-restore:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
+.voice-active { opacity: 1 !important; color: #f43f5e !important; animation: voice-pulse 1s ease-in-out infinite; }
+@keyframes voice-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+.like-active {
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 8px rgba(255,45,120,0.5)) drop-shadow(0 0 16px rgba(167,139,250,0.3));
+}
 
 .player-btn {
   width: 28px;
@@ -2024,6 +2285,8 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   color: #111;
 }
 
+.theme-light .header-icon-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); color: rgba(0,0,0,0.4); }
+.theme-light .header-icon-btn:hover { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.12); }
 .theme-light .user-bubble { background: #e8e8ec; color: #111111; }
 .theme-light .ai-bubble { background: #ffffff; color: #111111; border: 1px solid rgba(0, 0, 0, 0.05); }
 .theme-light .bubble-avatar.user { background: rgba(0, 0, 0, 0.06); border-color: rgba(0, 0, 0, 0.1); }
@@ -2195,6 +2458,9 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
 
 /* ── QR Code ── */
 .qr-stage { min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.qr-start { display: flex; flex-direction: column; align-items: center; padding: 30px 0; }
+.qr-start-btn { display: flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 12px; background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.25); color: #00f0ff; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.qr-start-btn:hover { background: rgba(0,240,255,0.18); box-shadow: 0 0 16px rgba(0,240,255,0.2); }
 .qr-loading { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 0; }
 .qr-loading-spinner { width: 28px; height: 28px; border: 2px solid rgba(0,240,255,0.15); border-top-color: #00f0ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -2410,7 +2676,112 @@ body { margin: 0; padding: 0; background-color: #030308; overflow: hidden; }
   line-height: 1.8;
 }
 
+/* ── Queue Dropdown ── */
+.queue-wrap { position: relative; }
+.queue-badge {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 14px; height: 14px;
+  border-radius: 7px;
+  background: rgba(0,240,255,0.2);
+  border: 1px solid rgba(0,240,255,0.3);
+  color: #00f0ff;
+  font-size: 8px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
+}
+.queue-dropdown {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: 240px; max-height: 360px;
+  background: rgba(12,12,24,0.96);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  z-index: 60;
+}
+.queue-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.queue-title { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.7); letter-spacing: 0.05em; }
+.queue-count { font-size: 9px; color: rgba(255,255,255,0.3); font-family: monospace; }
+.queue-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.queue-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px;
+  transition: background 0.15s;
+}
+.queue-item:hover { background: rgba(255,255,255,0.04); }
+.queue-item.active { background: rgba(0,240,255,0.06); }
+.queue-idx {
+  width: 18px; font-size: 10px; font-weight: 600;
+  color: rgba(255,255,255,0.15); text-align: right; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.queue-item.active .queue-idx { color: #00f0ff; }
+.queue-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.queue-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-item.active .queue-name { color: #00f0ff; }
+.queue-artist { font-size: 10px; color: rgba(255,255,255,0.25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-footer {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  font-size: 10px; color: rgba(255,255,255,0.35);
+  cursor: pointer;
+}
+.queue-footer:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.03); }
+.queue-mode-btn {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.35);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.queue-mode-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); }
+.qdrop-enter-active { transition: all 0.2s ease-out; }
+.qdrop-leave-active { transition: all 0.15s ease-in; }
+.qdrop-enter-from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+.qdrop-leave-to { opacity: 0; transform: translateY(-4px); }
+
+.theme-light .queue-dropdown { background: rgba(255,255,255,0.96); border-color: rgba(0,0,0,0.06); }
+.theme-light .queue-name { color: #111; }
+.theme-light .queue-artist { color: #888; }
+.theme-light .queue-item:hover { background: rgba(0,0,0,0.03); }
+.theme-light .queue-item.active { background: rgba(0,180,220,0.06); }
+.theme-light .queue-item.active .queue-name { color: #0891b2; }
+.theme-light .queue-badge { background: rgba(0,180,220,0.15); border-color: rgba(0,180,220,0.3); color: #0891b2; }
+
+/* ── Header Icon Button ── */
+.header-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.header-icon-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.1);
+}
+
 /* ── Header Login Pill ── */
+.login-pill-wrapper { position: relative; }
+.user-dropdown { position: absolute; top: calc(100% + 6px); right: 0; min-width: 110px; background: rgba(12,12,24,0.95); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 50; }
+.user-dropdown-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 12px; border: none; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.6); font-family: inherit; font-size: 10px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+.user-dropdown-item:hover { background: rgba(255,255,255,0.06); color: #f43f5e; }
 .login-pill {
   padding: 6px 14px;
   border-radius: 9999px;

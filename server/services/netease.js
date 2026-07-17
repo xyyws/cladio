@@ -166,8 +166,29 @@ async function getSongDetail(songId) {
 
 // ── 播放地址（实时获取，不缓存） ──
 
+// 音质配置
+const QUALITY_LEVELS = {
+  standard: { br: 128000, label: '标准', desc: '128kbps' },
+  higher:   { br: 192000, label: '较高', desc: '192kbps' },
+  exhigh:   { br: 320000, label: '极高', desc: '320kbps' },
+  lossless: { br: 999000, label: '无损', desc: 'FLAC' },
+};
+let _currentQuality = 'exhigh'; // 默认极高
+
+function setQuality(level) {
+  if (QUALITY_LEVELS[level]) {
+    _currentQuality = level;
+    console.log(`[NetEase] 音质切换: ${QUALITY_LEVELS[level].label} (${QUALITY_LEVELS[level].desc})`);
+  }
+}
+
+function getQuality() {
+  return { level: _currentQuality, ...QUALITY_LEVELS[_currentQuality] };
+}
+
 async function getSongUrl(songId) {
-  const json = await api('/song/url', { id: String(songId), br: 320000 });
+  const br = QUALITY_LEVELS[_currentQuality].br;
+  const json = await api('/song/url', { id: String(songId), br });
   const data = json?.data?.[0];
 
   if (!data || !data.url) return null;
@@ -196,6 +217,64 @@ async function getPlaylistDetail(playlistId) {
 }
 
 // ── 搜索 ──
+
+// ── 红心歌曲列表 ──
+
+async function getLikedIds(uid) {
+  try {
+    const json = await api('/likelist', { uid: String(uid) });
+    return json?.ids || [];
+  } catch (err) {
+    console.warn('[NetEase] 获取红心列表失败:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 获取红心歌曲详情列表
+ * likelist API 返回的 ID 顺序 = 收藏时间倒序（最新收藏在前）
+ *
+ * @param {string} uid
+ * @param {object} opts - { timeRange: 'all'|'newest'|'oldest', limit }
+ * @returns {Promise<Array>} 歌曲列表
+ */
+async function getLikedSongs(uid, opts = {}) {
+  const ids = await getLikedIds(uid);
+  if (ids.length === 0) return [];
+
+  // 根据时间范围截取
+  let selectedIds;
+  const limit = opts.limit || 10;
+  if (opts.timeRange === 'oldest') {
+    // 很久之前收藏 → 取列表末尾（最早收藏的）
+    selectedIds = ids.slice(-limit).reverse();
+  } else if (opts.timeRange === 'newest') {
+    // 最近收藏 → 取列表开头
+    selectedIds = ids.slice(0, limit);
+  } else {
+    // 全部 → 随机取
+    const shuffled = [...ids].sort(() => Math.random() - 0.5);
+    selectedIds = shuffled.slice(0, limit);
+  }
+
+  // 批量获取歌曲详情
+  try {
+    const detailJson = await api('/song/detail', { ids: selectedIds.join(',') });
+    const songs = detailJson?.songs || [];
+    return songs.map(s => ({
+      id: s.id,
+      name: s.name,
+      artists: (s.ar || []).map(a => a.name).join(' / '),
+      album: s.al?.name || '',
+      cover: (s.al?.picUrl || '').replace(/^http:\/\//, 'https://'),
+      duration: s.dt || 0,
+      pop: s.pop || 0,
+    }));
+  } catch (err) {
+    console.warn('[NetEase] 获取歌曲详情失败:', err.message);
+    return selectedIds.map(id => ({ id, name: '', artists: '' }));
+  }
+}
 
 async function search(keywords, { limit = 20, offset = 0, type = 1 } = {}) {
   const json = await api('/search', { keywords, limit, offset, type });
@@ -406,6 +485,11 @@ module.exports = {
   api,
   getSongDetail,
   getSongUrl,
+  getLikedIds,
+  getLikedSongs,
+  setQuality,
+  getQuality,
+  QUALITY_LEVELS,
   getPlaylistDetail,
   search,
   getHotComments,

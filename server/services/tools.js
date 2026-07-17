@@ -11,6 +11,7 @@ const netease = require('./netease');
 const { getWeather } = require('./environment');
 const { getRecentPlays, getTodayPlayedIds } = require('./stateDB');
 const { loadArsenal, searchArsenal, pickRandom } = require('./playlistService');
+const { expandKeywords } = require('./recommendEngine');
 
 // ══════════════════════════════════════════════
 // 工具定义（注册给大模型）
@@ -342,11 +343,30 @@ async function executeTool(name, args) {
 
     case 'pick_from_arsenal': {
       const todayPlayed = getTodayPlayedIds();
+      const count = args.count || 5;
       if (args.keywords) {
-        const matches = await searchArsenal(args.keywords, args.count || 5);
+        // 1. 直接搜弹药库
+        let matches = await searchArsenal(args.keywords, count);
         if (matches.length > 0) return matches;
+
+        // 2. 语义扩展后搜弹药库
+        const expanded = expandKeywords(args.keywords);
+        for (const kw of expanded) {
+          matches = await searchArsenal(kw, count);
+          if (matches.length > 0) return matches;
+        }
+
+        // 3. 语义扩展后搜网易云（弹药库没有就从全网搜）
+        for (const kw of expanded) {
+          try {
+            const songs = await netease.search(kw, { limit: count });
+            if (songs.length > 0) return songs.map(s => ({
+              id: String(s.id), name: s.name, artists: s.artists,
+            }));
+          } catch (_) {}
+        }
       }
-      return await pickRandom(args.count || 5, todayPlayed);
+      return await pickRandom(count, todayPlayed);
     }
 
     // ── 高阶工具 ──

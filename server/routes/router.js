@@ -54,6 +54,9 @@ router.post('/arsenal', arsenalController.switchArsenal);
 // 10.5. GET /api/arsenal/play — 获取弹药库可播放歌曲
 router.get('/arsenal/play', arsenalController.getArsenalPlaylist);
 
+// 10.6. GET /api/arsenal/tracks — 获取指定歌单歌曲列表
+router.get('/arsenal/tracks', arsenalController.getPlaylistTrackList);
+
 // 11. GET /api/comments/:songId — 获取歌曲热门评论
 router.get('/comments/:songId', commentsController.getComments);
 
@@ -109,5 +112,72 @@ router.delete('/memory/prefs/:id', memoryController.deletePrefs);
 
 // 24. GET  /api/memory/context — 获取记忆上下文
 router.get('/memory/context', memoryController.getContext);
+
+// 25. GET  /api/quality — 获取当前音质
+router.get('/quality', (_req, res) => {
+  const netease = require('../services/netease');
+  const q = netease.getQuality();
+  res.json({ status: 200, data: q });
+});
+
+// 26. POST /api/quality — 设置音质
+router.post('/quality', (req, res) => {
+  const netease = require('../services/netease');
+  const { level } = req.body;
+  if (!level || !netease.QUALITY_LEVELS[level]) {
+    return res.status(400).json({ status: 400, error: { message: '无效音质等级' } });
+  }
+  netease.setQuality(level);
+  const q = netease.getQuality();
+  res.json({ status: 200, data: q });
+});
+
+// 27. GET /api/likelist — 获取用户红心歌曲 ID 列表
+router.get('/likelist', async (req, res) => {
+  const netease = require('../services/netease');
+  const uid = req.query.uid;
+  if (!uid) return res.status(400).json({ status: 400, error: { message: 'uid 必填' } });
+  const ids = await netease.getLikedIds(uid);
+  res.json({ status: 200, data: { ids, count: ids.length } });
+});
+
+// 28. GET /api/liked — 获取红心歌曲详情（按收藏时间）
+router.get('/liked', async (req, res) => {
+  const netease = require('../services/netease');
+  const uid = req.query.uid;
+  const timeRange = req.query.timeRange || 'all';
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  if (!uid) return res.status(400).json({ status: 400, error: { message: 'uid 必填' } });
+  const songs = await netease.getLikedSongs(uid, { timeRange, limit });
+  res.json({ status: 200, data: { songs, timeRange, count: songs.length } });
+});
+
+// 29. POST /api/llm — 轻量 LLM 代理（不走 Agent 流程，供 Python 服务调用）
+router.post('/llm', async (req, res) => {
+  try {
+    const { prompt, temperature = 0.1, max_tokens = 500 } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'prompt 必填' });
+
+    const config = require('../config');
+    const OpenAI = require('openai');
+    const client = new OpenAI({
+      apiKey: config.llm.apiKey,
+      baseURL: config.llm.baseUrl,
+      timeout: 30000,
+    });
+
+    const response = await client.chat.completions.create({
+      model: config.llm.model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature,
+      max_tokens,
+    });
+
+    const reply = response.choices[0]?.message?.content || '';
+    res.json({ reply });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
