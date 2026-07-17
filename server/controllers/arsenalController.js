@@ -4,7 +4,7 @@
  * 接收前端传来的歌单 ID，拉取该歌单所有歌曲，
  * 替换当前弹药库。
  */
-const { loadArsenal, getPlaylistTracks, getUserPlaylists } = require('../services/playlistService');
+const { loadArsenal, getPlaylistTracks, getUserPlaylists, clearArsenalCache } = require('../services/playlistService');
 
 // 运行时覆盖的歌单 ID（优先级高于 .env）
 let _activePlaylistId = null;
@@ -39,8 +39,9 @@ async function switchArsenal(req, res, next) {
       });
     }
 
-    // 写入 SQLite（UPSERT，不会重复）
-    const { upsertSong } = require('../services/stateDB');
+    // 清空旧歌曲 + 写入新歌曲
+    const { upsertSong, clearSongs } = require('../services/stateDB');
+    clearSongs();
     let added = 0;
     for (const t of tracks) {
       upsertSong(String(t.id), {
@@ -52,8 +53,9 @@ async function switchArsenal(req, res, next) {
       added++;
     }
 
-    // 更新活跃歌单 ID
+    // 更新活跃歌单 ID + 清除缓存
     _activePlaylistId = String(playlistId);
+    clearArsenalCache();
 
     // 查询总数
     const { getDb } = require('../services/stateDB');
@@ -102,6 +104,7 @@ async function getArsenalStatus(_req, res, next) {
           id: p.id,
           name: p.name,
           trackCount: p.trackCount,
+          coverUrl: p.coverUrl || '',
         })),
       },
     });
@@ -151,4 +154,40 @@ async function getArsenalPlaylist(req, res, next) {
   }
 }
 
-module.exports = { switchArsenal, getArsenalStatus, getActivePlaylistId, getArsenalPlaylist };
+/**
+ * GET /api/arsenal/tracks?playlistId=xxx&limit=100
+ * 获取指定歌单的歌曲列表（不切换弹药库）
+ */
+async function getPlaylistTrackList(req, res, next) {
+  try {
+    const playlistId = req.query.playlistId;
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+
+    if (!playlistId) {
+      return res.status(400).json({ status: 400, error: { message: 'playlistId 必填' } });
+    }
+
+    const tracks = await getPlaylistTracks(playlistId);
+    const sliced = (tracks || []).slice(0, limit);
+
+    res.json({
+      status: 200,
+      data: {
+        playlistId,
+        total: (tracks || []).length,
+        tracks: sliced.map(t => ({
+          id: String(t.id),
+          name: t.name,
+          artists: t.artists,
+          album: t.album,
+          coverUrl: t.coverUrl || '',
+          duration: t.duration || 0,
+        })),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { switchArsenal, getArsenalStatus, getActivePlaylistId, getArsenalPlaylist, getPlaylistTrackList };

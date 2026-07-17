@@ -146,6 +146,14 @@ function upsertSong(songId, { title, artist, album, coverUrl } = {}) {
   stmt.run(songId, title || null, artist || null, album || null, coverUrl || null);
 }
 
+/**
+ * 清空歌曲表（切换歌单前调用）
+ */
+function clearSongs() {
+  getDb().prepare('DELETE FROM songs').run();
+  console.log('[StateDB] songs 表已清空');
+}
+
 // ══════════════════════════════════════════════
 // 播放记录
 // ══════════════════════════════════════════════
@@ -327,6 +335,7 @@ module.exports = {
   getRecentPlays,
   getTodayPlayedIds,
   upsertSong,
+  clearSongs,
   logAI,
   getRecentAILogs,
   getPlayCount,

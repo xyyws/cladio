@@ -13,6 +13,15 @@ let _allTracksCache = null; // Array<{ id, name, artists, album, coverUrl }>
 let _lastFetch = 0;
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 分钟缓存
 
+/**
+ * 清除弹药库缓存（切换歌单后调用）
+ */
+function clearArsenalCache() {
+  _allTracksCache = null;
+  _lastFetch = 0;
+  console.log('[Playlist] 弹药库缓存已清除');
+}
+
 // ── 用户配置（从 .env 读取） ──
 const USER_UID = process.env.NETEASE_UID || '1376158004';
 const HEART_PLAYLIST_ID = process.env.NETEASE_PLAYLIST_ID || '2107763308';
@@ -218,6 +227,7 @@ module.exports = {
   loadUserArsenal,
   pickRandom,
   searchArsenal,
+  clearArsenalCache,
   USER_UID,
   HEART_PLAYLIST_ID,
 };

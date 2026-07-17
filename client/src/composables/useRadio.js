@@ -79,6 +79,9 @@ export function useRadio() {
     error: null,
     lastUpdated: null,
     env: null,
+    playbackMode: 'sequential',
+    playbackModeLabel: '顺序',
+    playbackModeIcon: 'sequential',
   });
 
   // ── 状态机 ──
@@ -86,6 +89,24 @@ export function useRadio() {
     state.status = to;
     console.log(`[Radio] 状态: ${from} → ${to}`);
   });
+
+  // ── 播放模式 ──
+  // sequential: 顺序播放 | repeat-one: 单曲循环 | shuffle: 随机播放
+  const PLAYBACK_MODES = ['sequential', 'repeat-one', 'shuffle']
+  const MODE_LABELS = { sequential: '顺序', 'repeat-one': '单曲循环', 'shuffle': '随机' }
+  const MODE_ICONS = { sequential: 'sequential', 'repeat-one': 'repeat-one', 'shuffle': 'shuffle' }
+  let _playbackMode = 'sequential'
+
+  function cyclePlayMode() {
+    const idx = PLAYBACK_MODES.indexOf(_playbackMode)
+    _playbackMode = PLAYBACK_MODES[(idx + 1) % PLAYBACK_MODES.length]
+    state.playbackMode = _playbackMode
+    state.playbackModeLabel = MODE_LABELS[_playbackMode]
+    state.playbackModeIcon = MODE_ICONS[_playbackMode]
+    console.log(`[Radio] 播放模式: ${MODE_LABELS[_playbackMode]}`)
+  }
+
+  function getPlayMode() { return _playbackMode }
 
   // ── 内部控制变量 ──
   let pollTimer = null;
@@ -390,8 +411,22 @@ export function useRadio() {
     }
 
     if (state.playlist.length > 1) {
-      state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
-      playTrackByIndex(state.currentIndex);
+      if (_playbackMode === 'repeat-one') {
+        // 单曲循环：重新播放当前歌曲
+        playTrackByIndex(state.currentIndex);
+      } else if (_playbackMode === 'shuffle') {
+        // 随机：选一首不同的歌
+        let randIdx = state.currentIndex;
+        while (randIdx === state.currentIndex && state.playlist.length > 1) {
+          randIdx = Math.floor(Math.random() * state.playlist.length);
+        }
+        state.currentIndex = randIdx;
+        playTrackByIndex(randIdx);
+      } else {
+        // 顺序：下一首
+        state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
+        playTrackByIndex(state.currentIndex);
+      }
       return;
     }
 
@@ -445,7 +480,7 @@ export function useRadio() {
       }
 
       const elapsed = (Date.now() - startTime) / 1000;
-      console.log(`[Radio] 歌曲播放 ${elapsed.toFixed(1)}s`);
+      console.log(`[Radio] 歌曲播放 ${elapsed.toFixed(1)}s, 模式=${_playbackMode}`);
 
       if (elapsed < MIN_PLAY_SECONDS) {
         console.warn(`[Radio] 播放时间过短 (${elapsed.toFixed(1)}s)，音频可能加载失败`);
@@ -457,7 +492,24 @@ export function useRadio() {
       }
 
       _failedCount = 0;
-      if (!stopped) next();
+      if (!stopped) {
+        // 根据播放模式决定下一步
+        if (_playbackMode === 'repeat-one') {
+          // 单曲循环：重新播放当前歌曲
+          playTrackByIndex(state.currentIndex);
+        } else if (_playbackMode === 'shuffle' && state.playlist.length > 1) {
+          // 随机播放：选一首不同的歌
+          let randIdx = state.currentIndex;
+          while (randIdx === state.currentIndex && state.playlist.length > 1) {
+            randIdx = Math.floor(Math.random() * state.playlist.length);
+          }
+          state.currentIndex = randIdx;
+          playTrackByIndex(randIdx);
+        } else {
+          // 顺序播放
+          next();
+        }
+      }
     }).catch(err => {
       if (sessionId !== _playSessionId) return;
       _failedCount++;
@@ -555,5 +607,6 @@ export function useRadio() {
     playChatSongs,
     playTrack,
     playTrackByIndex,
+    cyclePlayMode,
   };
 }
